@@ -9,24 +9,23 @@
   }
 }
 
-/* Custom Win11 Fluent Acrylic / Mica & Scrollbars */
+/* Restrained Monochromatic Fluent Acrylic Glass */
 .fluent-glass {
-  background: rgba(18, 24, 38, 0.75);
-  backdrop-filter: blur(24px) saturate(180%);
+  background: rgba(15, 15, 18, 0.85);
+  backdrop-filter: blur(20px) saturate(100%);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .fluent-glass-light {
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 16px 32px -8px rgba(0, 0, 0, 0.1);
 }
 
 .fluent-card {
-  background: rgba(30, 41, 59, 0.6);
-  backdrop-filter: blur(12px);
+  background: rgba(24, 24, 27, 0.8);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -35,9 +34,8 @@
 }
 
 .fluent-card-hover:hover {
-  background: rgba(51, 65, 85, 0.7);
-  border-color: rgba(96, 165, 250, 0.3);
-  transform: translateY(-2px);
+  background: rgba(39, 39, 42, 0.9);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 /* Custom Overlay Opacity Transition (0.25s) */
@@ -45,16 +43,16 @@
   transition: opacity 250ms cubic-bezier(0.16, 1, 0.3, 1), backdrop-filter 250ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Custom Win11 Scrollbar */
+/* Custom Minimal Win11 Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.18);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {

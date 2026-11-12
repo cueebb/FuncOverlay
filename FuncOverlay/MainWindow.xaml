@@ -1,0 +1,100 @@
+<Window x:Class="FuncOverlay.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="FuncOverlay"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        WindowState="Maximized"
+        ShowInTaskbar="False">
+    
+    <Grid x:Name="OverlayRootGrid" Background="#00000000" Opacity="0">
+        <!-- Backdrop Tint Layer (Covers entire screen and taskbar) -->
+        <Border x:Name="BackdropTint" Background="#66000000" />
+
+        <!-- Plugins Canvas (Where plugin modules are rendered) -->
+        <Canvas x:Name="PluginsCanvas" Visibility="Collapsed" />
+
+        <!-- Center Guide: "How to Install Plugins" (Shown when no plugins installed) -->
+        <Border x:Name="NoPluginsCenterBorder"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Width="540"
+                Background="#EE09090B"
+                BorderBrush="#FF27272A"
+                BorderThickness="1"
+                CornerRadius="16"
+                Padding="32">
+            <StackPanel>
+                <!-- Title Header -->
+                <TextBlock Text="How to Install Plugins"
+                           FontSize="20"
+                           FontWeight="Bold"
+                           Foreground="#FFFFFFFF"
+                           Margin="0,0,0,4" />
+                <TextBlock Text="FuncOverlay is running, but no plugins were found in the 'plugins' directory. Follow these steps to add modules:"
+                           FontSize="12"
+                           Foreground="#FFA1A1AA"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,20" />
+                <Separator Background="#FF27272A" Margin="0,0,0,16" />
+
+                <!-- Step 1 -->
+                <Border Background="#CC18181B" BorderBrush="#FF27272A" BorderThickness="1" CornerRadius="12" Padding="16" Margin="0,0,0,12">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Width="28" Height="28" Background="#FF27272A" CornerRadius="6" VerticalAlignment="Top" Margin="0,0,12,0">
+                            <TextBlock Text="1" Foreground="#FFE4E4E7" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Download a Plugin" FontWeight="SemiBold" Foreground="#FFFFFFFF" FontSize="13" />
+                            <TextBlock Text="Download any plugin folder from the official GitHub repository of the project." Foreground="#FFA1A1AA" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Step 2 -->
+                <Border Background="#CC18181B" BorderBrush="#FF27272A" BorderThickness="1" CornerRadius="12" Padding="16" Margin="0,0,0,12">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Width="28" Height="28" Background="#FF27272A" CornerRadius="6" VerticalAlignment="Top" Margin="0,0,12,0">
+                            <TextBlock Text="2" Foreground="#FFE4E4E7" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Extract to Plugins Folder" FontWeight="SemiBold" Foreground="#FFFFFFFF" FontSize="13" />
+                            <TextBlock Text="Extract the plugin folder and put it in the folder named 'plugins' in the root path of FuncOverlay." Foreground="#FFA1A1AA" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,6" />
+                            <Border Background="#FF000000" BorderBrush="#FF27272A" BorderThickness="1" CornerRadius="6" Padding="10,6">
+                                <TextBlock Text="{Binding PathHintText, RelativeSource={RelativeSource AncestorType=Window}}"
+                                           FontFamily="Consolas" FontSize="11" Foreground="#FFE4E4E7" />
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Step 3 -->
+                <Border Background="#CC18181B" BorderBrush="#FF27272A" BorderThickness="1" CornerRadius="12" Padding="16">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Width="28" Height="28" Background="#FF27272A" CornerRadius="6" VerticalAlignment="Top" Margin="0,0,12,0">
+                            <TextBlock Text="3" Foreground="#FFE4E4E7" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Restart Application" FontWeight="SemiBold" Foreground="#FFFFFFFF" FontSize="13" />
+                            <TextBlock Text="Restart the application for the changes to take effect (via tray menu)." Foreground="#FFA1A1AA" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

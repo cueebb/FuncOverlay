@@ -1,19 +1,173 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { t } from '../i18n';
-import { Terminal, Copy, Check, X, Code2, Cpu, FileCode, Layers, Play } from 'lucide-react';
+import { Terminal, Copy, Check, X } from 'lucide-react';
 
 export const CsharpDevGuideModal: React.FC = () => {
   const { isCsharpSpecOpen, closeCsharpSpec, showToast } = useApp();
-  const [activeSnippet, setActiveSnippet] = useState<'main' | 'pluginManager' | 'tray' | 'interface'>('main');
+  const [activeSnippet, setActiveSnippet] = useState<'workflow' | 'nsis' | 'main' | 'pluginManager' | 'tray' | 'interface'>('workflow');
   const [copied, setCopied] = useState(false);
 
   if (!isCsharpSpecOpen) return null;
 
   const snippets = {
+    workflow: `# =========================================================================
+# .github/workflows/dev-build.yml
+# GitHub Actions: Automatically builds C# dev build & creates NSIS installer
+# Uploads FuncOverlay-Setup-x64.exe to GitHub Actions Workflow Artifacts
+# =========================================================================
+name: Dev Build & NSIS Installer
+
+on:
+  push:
+    branches: [ "main", "master", "dev" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-and-package:
+    name: Build C# App & Generate NSIS Installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8.0 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore Dependencies
+        run: dotnet restore FuncOverlay/FuncOverlay.csproj
+
+      - name: Publish C# Overlay (Release win-x64)
+        run: >
+          dotnet publish FuncOverlay/FuncOverlay.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=false
+          -o ./publish
+
+      - name: Install Nullsoft Scriptable Install System (NSIS)
+        run: choco install nsis -y
+
+      - name: Create Artifacts Output Folder
+        run: mkdir artifacts
+
+      - name: Compile Installer with NSIS (makensis)
+        run: |
+          & "C:\\Program Files (x86)\\NSIS\\makensis.exe" installer/FuncOverlay.nsi
+
+      - name: Upload Installer to GitHub Actions Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: FuncOverlay-DevSetup-x64
+          path: artifacts/FuncOverlay-Setup-x64.exe
+          if-no-files-found: error
+          retention-days: 30`,
+
+    nsis: `; =========================================================================
+; installer/FuncOverlay.nsi
+; Nullsoft Scriptable Install System (NSIS) Script for FuncOverlay
+; Generates: FuncOverlay-Setup-x64.exe with {FuncOverlay_folder}\\plugins directory
+; =========================================================================
+
+!define PRODUCT_NAME "FuncOverlay"
+!define PRODUCT_VERSION "1.0.0-dev"
+!define PRODUCT_PUBLISHER "FuncOverlay"
+!define PRODUCT_WEB_SITE "https://github.com/FuncOverlay/plugins"
+!define PRODUCT_DIR_REGKEY "Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\FuncOverlay.exe"
+!define PRODUCT_UNINST_KEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\\${PRODUCT_NAME}"
+!define PRODUCT_UNINST_ROOT_KEY "HKCU"
+
+; Modern UI (MUI2)
+!include "MUI2.nsh"
+!define MUI_ABORTWARNING
+
+; Installer Pages
+!insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_INSTFILES
+
+; Option to launch on finish
+!define MUI_FINISHPAGE_RUN "$INSTDIR\\FuncOverlay.exe"
+!define MUI_FINISHPAGE_RUN_TEXT "Launch FuncOverlay"
+!insertmacro MUI_PAGE_FINISH
+
+; Uninstaller Pages
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
+
+; Language
+!insertmacro MUI_LANGUAGE "English"
+
+Name "\${PRODUCT_NAME} \${PRODUCT_VERSION}"
+OutFile "..\\artifacts\\FuncOverlay-Setup-x64.exe"
+InstallDir "$LOCALAPPDATA\\FuncOverlay"
+InstallDirRegKey \${PRODUCT_UNINST_ROOT_KEY} "\${PRODUCT_DIR_REGKEY}" ""
+ShowInstDetails show
+ShowUnInstDetails show
+RequestExecutionLevel user
+
+Section "MainSection" SEC01
+  SetOutPath "$INSTDIR"
+  SetOverwrite ifnewer
+
+  ; Copy all published C# binaries and runtime dependencies
+  File /r "..\\publish\\*.*"
+
+  ; Create the plugins folder: {FuncOverlay_folder}\\plugins\\
+  CreateDirectory "$INSTDIR\\plugins"
+
+  ; Readme inside plugins folder
+  FileOpen $0 "$INSTDIR\\plugins\\README.txt" w
+  FileWrite $0 "FuncOverlay Plugins Directory$\r$\n"
+  FileWrite $0 "================================$\r$\n"
+  FileWrite $0 "Extract plugin folders here:$\r$\n"
+  FileWrite $0 "{FuncOverlay_folder}\\plugins\\{plugin_folder}\\$\r$\n"
+  FileWrite $0 "Each plugin folder must contain metadata.json and main.py or plugin.dll.$\r$\n"
+  FileClose $0
+
+  ; Create Start Menu Shortcuts
+  CreateDirectory "$SMPROGRAMS\\FuncOverlay"
+  CreateShortCut "$SMPROGRAMS\\FuncOverlay\\FuncOverlay.lnk" "$INSTDIR\\FuncOverlay.exe"
+  CreateShortCut "$SMPROGRAMS\\FuncOverlay\\Uninstall FuncOverlay.lnk" "$INSTDIR\\uninst.exe"
+  CreateShortCut "$SMPROGRAMS\\FuncOverlay\\Plugins Directory.lnk" "$WINDIR\\explorer.exe" "$INSTDIR\\plugins"
+
+  ; Add/Remove Programs Registry Entries
+  WriteRegStr \${PRODUCT_UNINST_ROOT_KEY} "\${PRODUCT_UNINST_KEY}" "DisplayName" "$(^Name)"
+  WriteRegStr \${PRODUCT_UNINST_ROOT_KEY} "\${PRODUCT_UNINST_KEY}" "UninstallString" "$INSTDIR\\uninst.exe"
+  WriteRegStr \${PRODUCT_UNINST_ROOT_KEY} "\${PRODUCT_UNINST_KEY}" "DisplayIcon" "$INSTDIR\\FuncOverlay.exe"
+  WriteRegStr \${PRODUCT_UNINST_ROOT_KEY} "\${PRODUCT_UNINST_KEY}" "DisplayVersion" "\${PRODUCT_VERSION}"
+  WriteRegStr \${PRODUCT_UNINST_ROOT_KEY} "\${PRODUCT_UNINST_KEY}" "URLInfoAbout" "\${PRODUCT_WEB_SITE}"
+  WriteRegStr \${PRODUCT_UNINST_ROOT_KEY} "\${PRODUCT_UNINST_KEY}" "Publisher" "\${PRODUCT_PUBLISHER}"
+  WriteRegStr \${PRODUCT_UNINST_ROOT_KEY} "\${PRODUCT_DIR_REGKEY}" "" "$INSTDIR\\FuncOverlay.exe"
+SectionEnd
+
+Section -Post
+  WriteUninstaller "$INSTDIR\\uninst.exe"
+SectionEnd
+
+Section Uninstall
+  Delete "$SMPROGRAMS\\FuncOverlay\\FuncOverlay.lnk"
+  Delete "$SMPROGRAMS\\FuncOverlay\\Uninstall FuncOverlay.lnk"
+  Delete "$SMPROGRAMS\\FuncOverlay\\Plugins Directory.lnk"
+  RMDir "$SMPROGRAMS\\FuncOverlay"
+
+  Delete "$INSTDIR\\*.*"
+  RMDir /r "$INSTDIR\\plugins"
+  RMDir "$INSTDIR"
+
+  DeleteRegKey \${PRODUCT_UNINST_ROOT_KEY} "\${PRODUCT_UNINST_KEY}"
+  DeleteRegKey \${PRODUCT_UNINST_ROOT_KEY} "\${PRODUCT_DIR_REGKEY}"
+SectionEnd`,
+
     main: `// =========================================================================
 // FuncOverlay - MainWindow.xaml.cs (C# .NET 8 WPF / WinUI 3)
-// Handles: Win32 Global Keybind (Alt+Enter), 0.25s Opacity Backdrop Animation, WS_EX_TOOLWINDOW
+// Handles: Win32 Global Keybind (Alt+Enter), 0.25s Opacity Backdrop Animation
 // =========================================================================
 using System;
 using System.Runtime.InteropServices;
@@ -32,16 +186,12 @@ namespace FuncOverlay
         [DllImport("user32.dll")]
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
 
-        [DllImport("user32.dll")]
-        private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
-
         public MainWindow()
         {
             InitializeComponent();
             
-            // Set window properties for overlay
             this.Topmost = true;
-            this.ShowInTaskbar = false; // Hide from taskbar, present in tray only
+            this.ShowInTaskbar = false;
             this.WindowStyle = WindowStyle.None;
             this.AllowsTransparency = true;
             this.Background = System.Windows.Media.Brushes.Transparent;
@@ -51,15 +201,8 @@ namespace FuncOverlay
         {
             base.OnSourceInitialized(e);
             IntPtr handle = new WindowInteropHelper(this).Handle;
-            
-            // Register global keybind Alt+Enter
-            bool registered = RegisterHotKey(handle, HOTKEY_ID, MOD_ALT, VK_RETURN);
-            if (!registered)
-            {
-                MessageBox.Show("Failed to register Alt+Enter global keybind.", "FuncOverlay Warning");
-            }
+            RegisterHotKey(handle, HOTKEY_ID, MOD_ALT, VK_RETURN);
 
-            // Hook Win32 message loop
             HwndSource source = HwndSource.FromHwnd(handle);
             source.AddHook(HwndHook);
         }
@@ -84,7 +227,7 @@ namespace FuncOverlay
                 this.Visibility = Visibility.Visible;
             }
 
-            // 0.25 seconds smooth opacity fade transition
+            // 0.25 seconds opacity fade animation
             DoubleAnimation fadeAnim = new DoubleAnimation
             {
                 To = targetOpacity,
@@ -107,26 +250,25 @@ namespace FuncOverlay
 
     pluginManager: `// =========================================================================
 // FuncOverlay - PluginManager.cs
-// Scans ./plugins/ subfolders for main.py (Python) or plugin.dll (C# Assembly) & parses metadata.json
+// Scans {FuncOverlay_folder}/plugins/ subfolders for main.py (Python) or plugin.dll (C#)
 // =========================================================================
 using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Text.Json;
-using System.Diagnostics;
 
 namespace FuncOverlay.Core
 {
     public class PluginMetadata
     {
-        public string id { get; set; }
-        public string name { get; set; }
-        public string description { get; set; }
-        public string entryPoint { get; set; } // "main.py" or "plugin.dll"
-        public string language { get; set; } // "python" or "csharp"
-        public Position position { get; set; }
-        public Size size { get; set; }
-        public bool enabled { get; set; }
+        public string id { get; set; } = string.Empty;
+        public string name { get; set; } = string.Empty;
+        public string description { get; set; } = string.Empty;
+        public string entryPoint { get; set; } = "main.py"; // "main.py" or "plugin.dll"
+        public string language { get; set; } = "python"; // "python" or "csharp"
+        public Position position { get; set; } = new Position();
+        public Size size { get; set; } = new Size();
+        public bool enabled { get; set; } = true;
     }
 
     public class Position { public int x { get; set; } public int y { get; set; } }
@@ -135,79 +277,22 @@ namespace FuncOverlay.Core
     public class PluginManager
     {
         public string PluginsDirectory { get; private set; }
-        public List<PluginMetadata> LoadedPlugins { get; private set; } = new List<PluginMetadata>();
 
         public PluginManager()
         {
-            // Root path ./plugins/
             PluginsDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "plugins");
             if (!Directory.Exists(PluginsDirectory))
             {
                 Directory.CreateDirectory(PluginsDirectory);
             }
         }
-
-        public void LoadAllPlugins()
-        {
-            LoadedPlugins.Clear();
-            string[] subdirectories = Directory.GetDirectories(PluginsDirectory);
-
-            foreach (string folderPath in subdirectories)
-            {
-                string metaFile = Path.Combine(folderPath, "metadata.json");
-                if (File.Exists(metaFile))
-                {
-                    try
-                    {
-                        string jsonContent = File.ReadAllText(metaFile);
-                        var meta = JsonSerializer.Deserialize<PluginMetadata>(jsonContent);
-                        
-                        if (meta != null && meta.enabled)
-                        {
-                            LoadedPlugins.Add(meta);
-                            ExecutePluginEntryPoint(folderPath, meta);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[Error loading plugin in {folderPath}]: {ex.Message}");
-                    }
-                }
-            }
-        }
-
-        private void ExecutePluginEntryPoint(string folderPath, PluginMetadata meta)
-        {
-            if (meta.entryPoint.EndsWith(".py"))
-            {
-                // Execute Python process
-                string scriptPath = Path.Combine(folderPath, meta.entryPoint);
-                ProcessStartInfo psi = new ProcessStartInfo
-                {
-                    FileName = "python.exe",
-                    Arguments = $"\"{scriptPath}\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                Process.Start(psi);
-            }
-            else if (meta.entryPoint.EndsWith(".dll"))
-            {
-                // Load C# Assembly via Reflection
-                string dllPath = Path.Combine(folderPath, meta.entryPoint);
-                System.Reflection.Assembly asm = System.Reflection.Assembly.LoadFrom(dllPath);
-                Console.WriteLine($"Loaded C# Plugin Assembly: {asm.FullName}");
-            }
-        }
     }
 }`,
 
     tray: `// =========================================================================
-// FuncOverlay - TrayIconManager.cs (Win11 System Tray Control)
-// Handles: System Tray icon, Context Menu (Toggle, Settings, Restart, Exit)
+// FuncOverlay - TrayIconManager.cs (System Tray Control in Notification Area)
 // =========================================================================
 using System;
-using System.Drawing;
 using System.Windows.Forms;
 
 namespace FuncOverlay.Tray
@@ -215,72 +300,41 @@ namespace FuncOverlay.Tray
     public class TrayIconManager
     {
         private NotifyIcon _notifyIcon;
-        private Action _toggleCallback;
-        private Action _openSettingsCallback;
-        private Action _restartCallback;
 
-        public void Initialize(Action toggle, Action openSettings, Action restart)
+        public void Initialize(Action toggle, Action openSettings)
         {
-            _toggleCallback = toggle;
-            _openSettingsCallback = openSettings;
-            _restartCallback = restart;
-
             ContextMenuStrip menu = new ContextMenuStrip();
-            menu.Items.Add("Toggle Overlay (Alt+Enter)", null, (s, e) => _toggleCallback?.Invoke());
-            menu.Items.Add("Settings...", null, (s, e) => _openSettingsCallback?.Invoke());
-            menu.Items.Add("Open 'plugins' Folder", null, (s, e) => OpenPluginsFolder());
+            menu.Items.Add("Toggle Overlay (Alt+Enter)", null, (s, e) => toggle?.Invoke());
+            menu.Items.Add("Settings", null, (s, e) => openSettings?.Invoke());
             menu.Items.Add("-");
-            menu.Items.Add("Restart Application", null, (s, e) => _restartCallback?.Invoke());
-            menu.Items.Add("Exit FuncOverlay", null, (s, e) => Application.Exit());
+            menu.Items.Add("Exit", null, (s, e) => Application.Exit());
 
             _notifyIcon = new NotifyIcon
             {
-                Icon = SystemIcons.Application,
-                Text = "FuncOverlay - Active in Tray",
+                Icon = System.Drawing.SystemIcons.Application,
+                Text = "FuncOverlay",
                 ContextMenuStrip = menu,
                 Visible = true
             };
-
-            _notifyIcon.DoubleClick += (s, e) => _toggleCallback?.Invoke();
-        }
-
-        private void OpenPluginsFolder()
-        {
-            string path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "plugins");
-            System.Diagnostics.Process.Start("explorer.exe", path);
         }
     }
 }`,
 
     interface: `// =========================================================================
 // FuncOverlay SDK - IFuncOverlayPlugin.cs (For C# .dll Plugins)
-// Create a C# Class Library targeting .NET 8 and implement this interface!
 // =========================================================================
 namespace FuncOverlay.Sdk
 {
     public interface IFuncOverlayPlugin
     {
-        /// <summary>
-        /// Called when FuncOverlay initializes the plugin on boot or hotkey trigger.
-        /// </summary>
         void OnLoad(IOverlayContext context);
-
-        /// <summary>
-        /// Called every frame tick for overlay drawing or UI updates.
-        /// </summary>
         void OnRender();
-
-        /// <summary>
-        /// Called when the user disables the module or exits the app.
-        /// </summary>
         void OnUnload();
     }
 
     public interface IOverlayContext
     {
         string PluginDirectory { get; }
-        void LogMessage(string message);
-        void UpdateMetadata(string key, object value);
     }
 }`,
   };
@@ -288,90 +342,110 @@ namespace FuncOverlay.Sdk
   const handleCopy = (code: string) => {
     navigator.clipboard.writeText(code);
     setCopied(true);
-    showToast('C# Boilerplate copied to clipboard!');
+    showToast('Code copied to clipboard');
     setTimeout(() => setCopied(false), 2500);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md select-none animate-in fade-in duration-150">
-      <div className="w-[880px] max-w-[96vw] h-[620px] max-h-[94vh] rounded-2xl fluent-glass border border-white/20 flex flex-col overflow-hidden text-slate-100 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md select-none animate-in fade-in duration-150">
+      <div className="w-[880px] max-w-[96vw] h-[600px] max-h-[94vh] rounded-2xl bg-zinc-950 border border-zinc-800 flex flex-col overflow-hidden text-zinc-100 shadow-2xl font-sans">
         {/* Title Bar */}
-        <div className="h-12 px-5 bg-slate-950/90 border-b border-white/10 flex items-center justify-between">
+        <div className="h-11 px-5 bg-zinc-900 border-b border-zinc-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Terminal className="w-4 h-4 text-emerald-400" />
-            <span className="font-semibold text-sm">FuncOverlay - C# (.NET 8) Host Code Blueprint</span>
+            <Terminal className="w-4 h-4 text-zinc-400" />
+            <span className="font-semibold text-xs text-white">FuncOverlay - C#, GitHub Actions & NSIS Blueprint</span>
           </div>
           <button
             onClick={closeCsharpSpec}
-            className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Snippet Tabs */}
-        <div className="h-10 bg-slate-900/80 border-b border-white/10 px-4 flex items-center justify-between text-xs font-mono">
-          <div className="flex gap-2">
+        <div className="h-10 bg-zinc-950 border-b border-zinc-800 px-4 flex items-center justify-between text-xs font-mono overflow-x-auto">
+          <div className="flex gap-1.5 shrink-0">
             <button
-              onClick={() => setActiveSnippet('main')}
-              className={`px-3 py-1.5 rounded-t-lg transition-colors cursor-pointer ${
-                activeSnippet === 'main'
-                  ? 'bg-slate-950 text-emerald-300 border-t-2 border-emerald-400 font-bold'
-                  : 'text-slate-400 hover:text-slate-200'
+              onClick={() => setActiveSnippet('workflow')}
+              className={`px-2.5 py-1.5 rounded-t transition-colors cursor-pointer whitespace-nowrap ${
+                activeSnippet === 'workflow'
+                  ? 'bg-zinc-900 text-white font-bold border-t-2 border-zinc-300'
+                  : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
-              MainWindow.xaml.cs (0.25s Fade + Keybind)
+              dev-build.yml (GitHub Action)
+            </button>
+            <button
+              onClick={() => setActiveSnippet('nsis')}
+              className={`px-2.5 py-1.5 rounded-t transition-colors cursor-pointer whitespace-nowrap ${
+                activeSnippet === 'nsis'
+                  ? 'bg-zinc-900 text-white font-bold border-t-2 border-zinc-300'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              FuncOverlay.nsi (NSIS)
+            </button>
+            <button
+              onClick={() => setActiveSnippet('main')}
+              className={`px-2.5 py-1.5 rounded-t transition-colors cursor-pointer whitespace-nowrap ${
+                activeSnippet === 'main'
+                  ? 'bg-zinc-900 text-white font-bold border-t-2 border-zinc-300'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              MainWindow.xaml.cs
             </button>
             <button
               onClick={() => setActiveSnippet('pluginManager')}
-              className={`px-3 py-1.5 rounded-t-lg transition-colors cursor-pointer ${
+              className={`px-2.5 py-1.5 rounded-t transition-colors cursor-pointer whitespace-nowrap ${
                 activeSnippet === 'pluginManager'
-                  ? 'bg-slate-950 text-amber-300 border-t-2 border-amber-400 font-bold'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-zinc-900 text-white font-bold border-t-2 border-zinc-300'
+                  : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
-              PluginManager.cs (plugins/ Loader)
+              PluginManager.cs
             </button>
             <button
               onClick={() => setActiveSnippet('tray')}
-              className={`px-3 py-1.5 rounded-t-lg transition-colors cursor-pointer ${
+              className={`px-2.5 py-1.5 rounded-t transition-colors cursor-pointer whitespace-nowrap ${
                 activeSnippet === 'tray'
-                  ? 'bg-slate-950 text-blue-300 border-t-2 border-blue-400 font-bold'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-zinc-900 text-white font-bold border-t-2 border-zinc-300'
+                  : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
-              TrayIconManager.cs (System Tray)
+              TrayIconManager.cs
             </button>
             <button
               onClick={() => setActiveSnippet('interface')}
-              className={`px-3 py-1.5 rounded-t-lg transition-colors cursor-pointer ${
+              className={`px-2.5 py-1.5 rounded-t transition-colors cursor-pointer whitespace-nowrap ${
                 activeSnippet === 'interface'
-                  ? 'bg-slate-950 text-indigo-300 border-t-2 border-indigo-400 font-bold'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-zinc-900 text-white font-bold border-t-2 border-zinc-300'
+                  : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
-              IFuncOverlayPlugin.cs (SDK)
+              IFuncOverlayPlugin.cs
             </button>
           </div>
 
           <button
             onClick={() => handleCopy(snippets[activeSnippet])}
-            className="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-sans text-xs flex items-center gap-1.5 cursor-pointer shadow transition-all active:scale-95"
+            className="px-3 py-1 rounded bg-zinc-200 hover:bg-white text-zinc-950 font-sans text-xs flex items-center gap-1.5 cursor-pointer shrink-0 ml-2"
           >
             {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? 'Copied!' : 'Copy Code'}</span>
+            <span>{copied ? 'Copied' : 'Copy'}</span>
           </button>
         </div>
 
         {/* Code Output Viewport */}
-        <div className="flex-1 p-4 bg-slate-950 overflow-auto font-mono text-xs text-slate-200 leading-relaxed">
-          <pre className="selection:bg-emerald-800">{snippets[activeSnippet]}</pre>
+        <div className="flex-1 p-4 bg-black overflow-auto font-mono text-xs text-zinc-300 leading-relaxed">
+          <pre>{snippets[activeSnippet]}</pre>
         </div>
 
         {/* Footer */}
-        <div className="h-10 px-4 bg-slate-950 border-t border-white/10 flex items-center justify-between text-[11px] font-mono text-slate-400">
-          <span>Target Platform: C# WPF / WinUI 3 (.NET 8.0 Windows Desktop)</span>
-          <span className="text-emerald-400 font-bold">FuncOverlay Host Architecture</span>
+        <div className="h-9 px-4 bg-zinc-900 border-t border-zinc-800 flex items-center justify-between text-[11px] font-mono text-zinc-500">
+          <span>Dev Build: NSIS Installer (.exe) generated on push and uploaded to artifacts</span>
+          <span>FuncOverlay Architecture</span>
         </div>
       </div>
     </div>

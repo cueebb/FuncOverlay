@@ -7,7 +7,6 @@ import React from 'react';
 import { AppProvider } from './context/AppContext';
 import { DesktopSimulator } from './components/DesktopSimulator';
 import { OverlayCanvas } from './components/OverlayCanvas';
-import { SystemTrayMenu } from './components/SystemTrayMenu';
 import { SettingsModal } from './components/SettingsModal';
 import { PluginsExplorerModal } from './components/PluginsExplorerModal';
 import { CsharpDevGuideModal } from './components/CsharpDevGuideModal';
@@ -21,9 +20,6 @@ export default function App() {
 
         {/* 0.25s Dimming Overlay Canvas with Plugin Modules / Installation Steps */}
         <OverlayCanvas />
-
-        {/* Windows 11 Taskbar & System Tray Menu (Bottom Right) */}
-        <SystemTrayMenu />
 
         {/* Windows 11 Settings Modal Window */}
         <SettingsModal />

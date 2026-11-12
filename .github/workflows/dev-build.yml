@@ -1,0 +1,52 @@
+name: Dev Build & NSIS Installer
+
+on:
+  push:
+    branches: [ "main", "master", "dev" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-and-package:
+    name: Build C# App & Generate NSIS Installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8.0 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore Dependencies
+        run: dotnet restore FuncOverlay/FuncOverlay.csproj
+
+      - name: Publish C# Overlay (Release win-x64)
+        run: >
+          dotnet publish FuncOverlay/FuncOverlay.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=false
+          -o ./publish
+
+      - name: Install Nullsoft Scriptable Install System (NSIS)
+        run: choco install nsis -y
+
+      - name: Create Artifacts Output Folder
+        run: mkdir artifacts
+
+      - name: Compile Installer with NSIS (makensis)
+        run: |
+          & "C:\Program Files (x86)\NSIS\makensis.exe" installer/FuncOverlay.nsi
+
+      - name: Upload Installer to GitHub Actions Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: FuncOverlay-DevSetup-x64
+          path: artifacts/FuncOverlay-Setup-x64.exe
+          if-no-files-found: error
+          retention-days: 30

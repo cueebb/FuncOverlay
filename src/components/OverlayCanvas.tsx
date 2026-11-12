@@ -13,6 +13,7 @@ import {
   Clock,
   Activity,
   FileText,
+  Settings,
 } from 'lucide-react';
 
 export const OverlayCanvas: React.FC = () => {
@@ -142,7 +143,7 @@ export const OverlayCanvas: React.FC = () => {
 /* RESTRAINED MONOCHROMATIC "HOW TO INSTALL PLUGINS" CENTER WINDOW */
 /* ========================================================================= */
 const NoPluginsCenterWindow: React.FC = () => {
-  const { openExplorer, restartApp } = useApp();
+  const { openExplorer, restartApp, openSettings } = useApp();
 
   return (
     <div className="w-[540px] max-w-[92vw] rounded-2xl bg-zinc-950/90 border border-zinc-800 p-8 text-zinc-100 shadow-2xl backdrop-blur-xl animate-in zoom-in-95 duration-200">
@@ -222,13 +223,25 @@ const NoPluginsCenterWindow: React.FC = () => {
             </p>
             <button
               onClick={restartApp}
-              className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 text-xs font-medium transition-colors cursor-pointer"
+              className="mt-2.5 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-black text-white font-medium border border-white hover:bg-zinc-900 transition-colors text-xs cursor-pointer active:scale-95"
             >
-              <RotateCw className="w-3.5 h-3.5 text-zinc-400" />
+              <RotateCw className="w-3.5 h-3.5 text-zinc-300" />
               <span>{t('overlay.noPlugins.step3.actionText')}</span>
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Footer quick action to open Settings */}
+      <div className="mt-6 pt-4 border-t border-zinc-800/80 flex items-center justify-between text-xs">
+        <span className="text-[11px] font-mono text-zinc-500">FuncOverlay</span>
+        <button
+          onClick={() => openSettings('general')}
+          className="bg-white text-black font-semibold hover:bg-zinc-200 transition-colors cursor-pointer rounded-lg px-3.5 py-1.5 text-xs shadow-sm flex items-center gap-1.5 active:scale-95"
+        >
+          <Settings className="w-3.5 h-3.5" />
+          <span>{t('tray.openSettings')}</span>
+        </button>
       </div>
     </div>
   );

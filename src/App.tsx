@@ -10,6 +10,7 @@ import { OverlayCanvas } from './components/OverlayCanvas';
 import { SettingsModal } from './components/SettingsModal';
 import { PluginsExplorerModal } from './components/PluginsExplorerModal';
 import { CsharpDevGuideModal } from './components/CsharpDevGuideModal';
+import { WindowsTrayArea } from './components/WindowsTrayArea';
 
 export default function App() {
   return (
@@ -26,6 +27,9 @@ export default function App() {
 
         {/* Virtual ./plugins/ File Explorer Modal */}
         <PluginsExplorerModal />
+
+        {/* Windows 11 System Tray (Bottom Right) */}
+        <WindowsTrayArea />
 
         {/* C# Developer Companion & Architecture Guide */}
         <CsharpDevGuideModal />

@@ -8,6 +8,16 @@ export interface PluginSize {
   height: number;
 }
 
+export interface PluginSettingDefinition {
+  key: string;
+  label: string;
+  type: 'string' | 'int' | 'bool' | 'select';
+  defaultValue: string | number | boolean;
+  value: string | number | boolean;
+  options?: string[];
+  description?: string;
+}
+
 export interface PluginMetadata {
   id: string;
   name: string;
@@ -24,6 +34,8 @@ export interface PluginMetadata {
   dependencies?: string[];
   widgetType?: 'clock' | 'sysinfo' | 'notes' | 'volume' | 'custom';
   customScriptContent?: string;
+  settingsSchema?: PluginSettingDefinition[];
+  settings?: Record<string, any>;
 }
 
 export interface PluginVirtualFile {

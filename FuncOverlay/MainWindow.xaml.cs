@@ -11,7 +11,7 @@ namespace FuncOverlay
     {
         private const int HOTKEY_ID = 9000;
         private const uint MOD_ALT = 0x0001;
-        private const uint VK_RETURN = 0x0D;
+        private const uint VK_SPACE = 0x20; // Alt + Space default
 
         [DllImport("user32.dll")]
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
@@ -36,7 +36,7 @@ namespace FuncOverlay
         {
             base.OnSourceInitialized(e);
             IntPtr handle = new WindowInteropHelper(this).Handle;
-            RegisterHotKey(handle, HOTKEY_ID, MOD_ALT, VK_RETURN);
+            RegisterHotKey(handle, HOTKEY_ID, MOD_ALT, VK_SPACE);
 
             HwndSource source = HwndSource.FromHwnd(handle);
             source.AddHook(HwndHook);

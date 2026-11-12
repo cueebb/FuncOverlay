@@ -1,337 +1,522 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { t } from '../i18n';
+import { PluginFolder, PluginSettingDefinition } from '../types/plugin';
 import {
-  Settings,
-  Keyboard,
-  Folder,
-  Terminal,
-  Sliders,
   X,
-  RotateCcw,
-  Monitor,
-  Moon,
-  Sun,
-  Globe,
+  FolderOpen,
+  RotateCw,
+  Upload,
+  Trash2,
+  Sliders,
+  Keyboard,
+  Package,
+  Check,
+  CheckCircle2,
+  Folder,
 } from 'lucide-react';
 
 export const SettingsModal: React.FC = () => {
   const {
     isSettingsOpen,
     closeSettings,
-    activeSettingsTab,
-    openSettings,
-    hotkey,
-    setHotkey,
-    overlayOpacity,
-    setOverlayOpacity,
     fadeDurationMs,
     setFadeDurationMs,
-    theme,
-    setTheme,
+    overlayOpacity,
+    setOverlayOpacity,
+    hotkey,
+    setHotkey,
     plugins,
     openExplorer,
-    openCsharpSpec,
+    restartApp,
+    installPluginArchive,
+    deletePlugin,
+    updatePluginSetting,
   } = useApp();
 
-  const [isRecordingKey, setIsRecordingKey] = useState(false);
-  const [recordedKeys, setRecordedKeys] = useState<string>('');
+  // Key recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordedCombo, setRecordedCombo] = useState<string>('');
 
   if (!isSettingsOpen) return null;
 
-  const handleKeyDownRecorder = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     e.preventDefault();
     if (e.key === 'Escape') {
-      setIsRecordingKey(false);
+      setIsRecording(false);
       return;
     }
 
-    const modifiers = [];
-    if (e.altKey) modifiers.push('Alt');
+    const modifiers: string[] = [];
     if (e.ctrlKey) modifiers.push('Ctrl');
+    if (e.altKey) modifiers.push('Alt');
     if (e.shiftKey) modifiers.push('Shift');
 
     let keyName = e.key;
     if (keyName === ' ') keyName = 'Space';
-    if (['Alt', 'Control', 'Shift', 'Meta'].includes(keyName)) return;
+    if (keyName === 'Control' || keyName === 'Alt' || keyName === 'Shift' || keyName === 'Meta') {
+      return;
+    }
 
-    const keybindStr = [...modifiers, keyName].join('+');
-    setRecordedKeys(keybindStr);
+    // Capitalize single letter
+    if (keyName.length === 1) keyName = keyName.toUpperCase();
+
+    const combo = modifiers.length > 0 ? `${modifiers.join('+')}+${keyName}` : keyName;
+    setRecordedCombo(combo);
   };
 
-  const confirmRecordedKey = () => {
-    if (recordedKeys) {
-      setHotkey(recordedKeys);
-      setIsRecordingKey(false);
+  const handleSaveRecordedHotkey = () => {
+    if (recordedCombo) {
+      setHotkey(recordedCombo);
+      setIsRecording(false);
+      setRecordedCombo('');
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md select-none animate-in fade-in duration-150">
-      <div className="w-[680px] max-w-[95vw] h-[500px] max-h-[90vh] rounded-2xl bg-zinc-950 border border-zinc-800 flex flex-col overflow-hidden text-zinc-100 shadow-2xl">
-        {/* Title Bar */}
-        <div className="h-11 px-5 bg-zinc-900 border-b border-zinc-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Settings className="w-4 h-4 text-zinc-400" />
-            <span className="font-semibold text-xs text-white">{t('settings.title')}</span>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md select-none animate-in fade-in duration-150"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) closeSettings();
+      }}
+    >
+      {/* Design styled identically to 'How to Install Plugins' Window */}
+      <div className="w-[660px] max-w-[94vw] max-h-[88vh] rounded-2xl bg-zinc-950/95 border border-zinc-800 p-8 text-zinc-100 shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+        
+        {/* Header */}
+        <div className="flex items-start justify-between pb-4 mb-6 border-b border-zinc-800 shrink-0">
+          <div>
+            <h2 className="text-xl font-bold tracking-tight text-white font-sans">
+              {t('settings.title')}
+            </h2>
+            <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+              {t('settings.subtitle')}
+            </p>
           </div>
           <button
             onClick={closeSettings}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+            className="p-1 rounded-lg hover:bg-zinc-900 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+            title={t('settings.close')}
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Modal Layout */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Sidebar Tabs */}
-          <div className="w-52 bg-zinc-950/80 border-r border-zinc-800 p-2.5 space-y-1 text-xs font-sans">
-            <button
-              onClick={() => openSettings('general')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors cursor-pointer ${
-                activeSettingsTab === 'general'
-                  ? 'bg-zinc-800 text-white font-medium border border-zinc-700'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
-              }`}
-            >
-              <Sliders className="w-3.5 h-3.5 text-zinc-400" />
-              <span>{t('settings.tabs.general')}</span>
-            </button>
+        {/* Scrollable Settings Content */}
+        <div className="flex-1 overflow-y-auto space-y-6 pr-1">
+          
+          {/* ================================================================= */}
+          {/* 1. GENERAL SECTION                                               */}
+          {/* ================================================================= */}
+          <div className="p-5 rounded-xl bg-zinc-900/80 border border-zinc-800 space-y-5">
+            <div className="flex items-center gap-2 border-b border-zinc-800 pb-2.5">
+              <Sliders className="w-4 h-4 text-zinc-300" />
+              <h3 className="text-sm font-semibold text-white tracking-wide uppercase font-mono text-[11px]">
+                {t('settings.general.sectionTitle')}
+              </h3>
+            </div>
 
-            <button
-              onClick={() => openSettings('hotkey')}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-colors cursor-pointer ${
-                activeSettingsTab === 'hotkey'
-                  ? 'bg-zinc-800 text-white font-medium border border-zinc-700'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Keyboard className="w-3.5 h-3.5 text-zinc-400" />
-                <span>{t('settings.tabs.hotkey')}</span>
+            {/* Field 1: Transition (time, in ms) */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center text-xs">
+                <label className="font-semibold text-white">
+                  {t('settings.general.transitionLabel')} ({t('settings.general.transitionUnit')})
+                </label>
+                <span className="font-mono text-xs text-zinc-200 font-bold bg-black px-2 py-0.5 rounded border border-zinc-800">
+                  {fadeDurationMs} ms
+                </span>
               </div>
-              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-zinc-900 text-zinc-300 border border-zinc-800">
-                {hotkey}
-              </span>
-            </button>
+              <input
+                type="range"
+                min="50"
+                max="1000"
+                step="25"
+                value={fadeDurationMs}
+                onChange={(e) => setFadeDurationMs(Number(e.target.value))}
+                className="w-full accent-white cursor-pointer"
+              />
+              <p className="text-[11px] text-zinc-400 leading-normal">
+                {t('settings.general.transitionDesc')}
+              </p>
+            </div>
 
-            <button
-              onClick={() => openSettings('plugins')}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-colors cursor-pointer ${
-                activeSettingsTab === 'plugins'
-                  ? 'bg-zinc-800 text-white font-medium border border-zinc-700'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Folder className="w-3.5 h-3.5 text-zinc-400" />
-                <span>{t('settings.tabs.plugins')}</span>
+            {/* Field 2: Overlay Alpha (0-100%) */}
+            <div className="space-y-1.5 pt-1 border-t border-zinc-800/70">
+              <div className="flex justify-between items-center text-xs">
+                <label className="font-semibold text-white">
+                  {t('settings.general.overlayAlphaLabel')}
+                </label>
+                <span className="font-mono text-xs text-zinc-200 font-bold bg-black px-2 py-0.5 rounded border border-zinc-800">
+                  {Math.round(overlayOpacity * 100)}%
+                </span>
               </div>
-              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-zinc-900 text-zinc-300 border border-zinc-800">
-                {plugins.length}
-              </span>
-            </button>
+              <input
+                type="range"
+                min="0.05"
+                max="1.0"
+                step="0.05"
+                value={overlayOpacity}
+                onChange={(e) => setOverlayOpacity(Number(e.target.value))}
+                className="w-full accent-white cursor-pointer"
+              />
+              <p className="text-[11px] text-zinc-400 leading-normal">
+                {t('settings.general.overlayAlphaDesc')}
+              </p>
+            </div>
 
-            <button
-              onClick={() => openSettings('csharpDev')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors cursor-pointer ${
-                activeSettingsTab === 'csharpDev'
-                  ? 'bg-zinc-800 text-white font-medium border border-zinc-700'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
-              }`}
-            >
-              <Terminal className="w-3.5 h-3.5 text-zinc-400" />
-              <span>{t('settings.tabs.csharpDev')}</span>
-            </button>
-          </div>
+            {/* Field 3: Global Hotkey (Text label -> text field -> Primary button "Change Keybind") */}
+            <div className="space-y-2 pt-1 border-t border-zinc-800/70">
+              <label className="font-semibold text-white text-xs block">
+                {t('settings.general.globalHotkeyLabel')}
+              </label>
 
-          {/* Right Content Viewport */}
-          <div className="flex-1 p-6 overflow-y-auto space-y-6 text-xs font-sans">
-            {activeSettingsTab === 'general' && (
-              <div className="space-y-5">
-                <div>
-                  <h3 className="text-sm font-semibold text-white mb-1">Visual Tinting & Transitions</h3>
-                  <p className="text-zinc-400 text-[11px]">
-                    Adjust backdrop dimming transition duration (default 0.25s) and screen tint darkness.
+              {isRecording ? (
+                /* Interactive Keybind Recorder */
+                <div className="p-3 rounded-lg bg-black border border-white space-y-2.5 animate-in fade-in">
+                  <p className="text-xs text-zinc-300 font-medium font-mono animate-pulse">
+                    {t('settings.general.recordingPrompt')}
                   </p>
-                </div>
-
-                {/* Fade Duration Slider */}
-                <div className="p-4 rounded-xl bg-zinc-900 border border-zinc-800 space-y-3">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <div className="font-semibold text-zinc-200">{t('settings.general.fadeDurationLabel')}</div>
-                      <div className="text-zinc-400 text-[11px]">{t('settings.general.fadeDurationDesc')}</div>
-                    </div>
-                    <span className="font-mono text-white font-bold text-xs">{fadeDurationMs / 1000}s ({fadeDurationMs}ms)</span>
-                  </div>
                   <input
-                    type="range"
-                    min="100"
-                    max="1000"
-                    step="50"
-                    value={fadeDurationMs}
-                    onChange={(e) => setFadeDurationMs(Number(e.target.value))}
-                    className="w-full accent-zinc-100 cursor-pointer"
+                    type="text"
+                    readOnly
+                    onKeyDown={handleKeyDown}
+                    value={recordedCombo || 'Press key combination...'}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-md px-3 py-1.5 font-mono text-xs text-white text-center focus:outline-none"
+                    autoFocus
                   />
-                </div>
-
-                {/* Dim Opacity Slider */}
-                <div className="p-4 rounded-xl bg-zinc-900 border border-zinc-800 space-y-3">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <div className="font-semibold text-zinc-200">{t('settings.general.dimOpacityLabel')}</div>
-                      <div className="text-zinc-400 text-[11px]">{t('settings.general.dimOpacityDesc')}</div>
-                    </div>
-                    <span className="font-mono text-white font-bold text-xs">{Math.round(overlayOpacity * 100)}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0.1"
-                    max="0.9"
-                    step="0.05"
-                    value={overlayOpacity}
-                    onChange={(e) => setOverlayOpacity(Number(e.target.value))}
-                    className="w-full accent-zinc-100 cursor-pointer"
-                  />
-                </div>
-              </div>
-            )}
-
-            {activeSettingsTab === 'hotkey' && (
-              <div className="space-y-5">
-                <div>
-                  <h3 className="text-sm font-semibold text-white mb-1">{t('settings.hotkeySection.title')}</h3>
-                  <p className="text-zinc-400 text-[11px]">{t('settings.hotkeySection.description')}</p>
-                </div>
-
-                <div className="p-6 rounded-xl bg-zinc-900 border border-zinc-800 text-center space-y-4">
-                  <div className="text-zinc-400 text-xs">{t('hotkey.currentKey')}</div>
-                  <div className="inline-block px-6 py-2.5 rounded-lg bg-black border border-zinc-700 font-mono font-bold text-xl text-white">
-                    {hotkey}
-                  </div>
-
-                  {isRecordingKey ? (
-                    <div className="p-4 rounded-lg bg-zinc-950 border border-zinc-700 space-y-3">
-                      <p className="text-zinc-300 font-medium">{t('hotkey.listening')}</p>
-                      <input
-                        type="text"
-                        readOnly
-                        onKeyDown={handleKeyDownRecorder}
-                        value={recordedKeys || 'Press key combination...'}
-                        className="w-full text-center bg-zinc-900 border border-zinc-700 rounded p-2 font-mono text-xs text-white focus:outline-none"
-                        autoFocus
-                      />
-                      <div className="flex justify-center gap-2 pt-1">
-                        <button
-                          onClick={confirmRecordedKey}
-                          disabled={!recordedKeys}
-                          className="px-4 py-1.5 rounded bg-zinc-200 text-zinc-900 font-semibold disabled:opacity-50 cursor-pointer"
-                        >
-                          Save
-                        </button>
-                        <button
-                          onClick={() => setIsRecordingKey(false)}
-                          className="px-4 py-1.5 rounded bg-zinc-800 text-zinc-300 cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex justify-center gap-3">
-                      <button
-                        onClick={() => {
-                          setIsRecordingKey(true);
-                          setRecordedKeys('');
-                        }}
-                        className="px-4 py-2 rounded-lg bg-zinc-200 hover:bg-white text-zinc-950 font-medium text-xs cursor-pointer transition-colors"
-                      >
-                        {t('hotkey.changeHotkey')}
-                      </button>
-                      <button
-                        onClick={() => setHotkey('Alt+Enter')}
-                        className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 font-medium text-xs cursor-pointer transition-colors flex items-center gap-1.5"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        <span>Reset</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {activeSettingsTab === 'plugins' && (
-              <div className="space-y-5">
-                <div>
-                  <h3 className="text-sm font-semibold text-white mb-1">{t('settings.pluginsSection.title')}</h3>
-                  <p className="text-zinc-400 text-[11px]">{t('settings.pluginsSection.directoryDesc')}</p>
-                </div>
-
-                <div className="p-4 rounded-xl bg-zinc-900 border border-zinc-800 space-y-2 font-mono">
-                  <div className="text-zinc-400 text-xs">{t('settings.pluginsSection.directoryLabel')}:</div>
-                  <div className="p-2 rounded bg-black border border-zinc-800 text-zinc-300 text-xs">
-                    ./plugins/
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between p-4 rounded-xl bg-zinc-900 border border-zinc-800">
-                  <div>
-                    <div className="font-semibold text-white">Virtual File Explorer</div>
-                    <div className="text-zinc-400 text-[11px]">View metadata.json files in plugins subfolders</div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      closeSettings();
-                      openExplorer();
-                    }}
-                    className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white text-xs font-medium cursor-pointer transition-colors"
-                  >
-                    Open Explorer
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {activeSettingsTab === 'csharpDev' && (
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-sm font-semibold text-white mb-1">{t('settings.csharpDev.title')}</h3>
-                  <p className="text-zinc-400 text-[11px]">{t('settings.csharpDev.desc')}</p>
-                </div>
-
-                <div className="p-4 rounded-xl bg-zinc-900 border border-zinc-800 space-y-2">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="font-semibold text-white">C# RegisterHotKey Implementation</span>
+                  <div className="flex items-center gap-2">
+                    {/* Primary Button: White with black text */}
                     <button
-                      onClick={openCsharpSpec}
-                      className="text-xs text-zinc-400 hover:text-white underline cursor-pointer"
+                      onClick={handleSaveRecordedHotkey}
+                      disabled={!recordedCombo}
+                      className="bg-white text-black font-semibold hover:bg-zinc-200 transition-colors cursor-pointer rounded-lg px-4 py-1.5 text-xs shadow-sm disabled:opacity-40"
                     >
-                      View Full Code →
+                      {t('settings.general.saveKeybindBtn')}
+                    </button>
+                    {/* Secondary Button: Black with white outline */}
+                    <button
+                      onClick={() => setIsRecording(false)}
+                      className="bg-black text-white font-medium border border-white hover:bg-zinc-900 transition-colors cursor-pointer rounded-lg px-4 py-1.5 text-xs"
+                    >
+                      {t('settings.general.cancelBtn')}
                     </button>
                   </div>
-                  <pre className="p-3 rounded bg-black font-mono text-[11px] text-zinc-300 overflow-x-auto border border-zinc-800">
-{`// Win32 Global Keybind Hook in C#
-RegisterHotKey(handle, HOTKEY_ID, MOD_ALT, VK_RETURN);`}
-                  </pre>
                 </div>
-              </div>
-            )}
+              ) : (
+                /* Standard Display: After text -> text field -> primary button */
+                <div className="flex items-center gap-2.5">
+                  <input
+                    type="text"
+                    readOnly
+                    value={hotkey}
+                    className="flex-1 bg-black border border-zinc-800 rounded-lg px-3 py-2 font-mono text-xs text-white font-semibold focus:outline-none"
+                  />
+                  {/* Primary button: White with black text */}
+                  <button
+                    onClick={() => {
+                      setIsRecording(true);
+                      setRecordedCombo('');
+                    }}
+                    className="bg-white text-black font-semibold hover:bg-zinc-200 transition-colors cursor-pointer rounded-lg px-4 py-2 text-xs shadow-sm shrink-0 active:scale-95 flex items-center gap-1.5"
+                  >
+                    <Keyboard className="w-3.5 h-3.5" />
+                    <span>{t('settings.general.changeKeybindBtn')}</span>
+                  </button>
+                  {/* Secondary button: Black with white outline */}
+                  <button
+                    onClick={() => setHotkey('Alt+Space')}
+                    className="bg-black text-white font-medium border border-white hover:bg-zinc-900 transition-colors cursor-pointer rounded-lg px-3 py-2 text-xs shrink-0 active:scale-95"
+                    title={t('settings.general.resetDefaultBtn')}
+                  >
+                    Reset (Alt+Space)
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* ================================================================= */}
+          {/* 2. PLUGINS SECTION                                               */}
+          {/* ================================================================= */}
+          <div className="p-5 rounded-xl bg-zinc-900/80 border border-zinc-800 space-y-5">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
+              <div className="flex items-center gap-2">
+                <Package className="w-4 h-4 text-zinc-300" />
+                <h3 className="text-sm font-semibold text-white tracking-wide uppercase font-mono text-[11px]">
+                  {t('settings.plugins.sectionTitle')}
+                </h3>
+              </div>
+              <span className="text-[11px] font-mono text-zinc-400">
+                {plugins.length} installed
+              </span>
+            </div>
+
+            {/* Row 1: Open Plugins Folder (Primary) + Restart FuncOverlay (Secondary) */}
+            <div className="flex items-center gap-3">
+              {/* Primary button: White with black text */}
+              <button
+                onClick={() => openExplorer()}
+                className="bg-white text-black font-semibold hover:bg-zinc-200 transition-colors cursor-pointer rounded-lg px-4 py-2 text-xs shadow-sm flex items-center gap-2 active:scale-95"
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+                <span>{t('settings.plugins.openPluginsFolderBtn')}</span>
+              </button>
+
+              {/* Secondary button: Black with white outline */}
+              <button
+                onClick={restartApp}
+                className="bg-black text-white font-medium border border-white hover:bg-zinc-900 transition-colors cursor-pointer rounded-lg px-4 py-2 text-xs flex items-center gap-2 active:scale-95"
+              >
+                <RotateCw className="w-3.5 h-3.5" />
+                <span>{t('settings.plugins.restartFuncOverlayBtn')}</span>
+              </button>
+            </div>
+
+            {/* Row 2: Clearly visible gray hint text */}
+            <div className="px-1 text-xs text-zinc-400 leading-normal">
+              {t('settings.plugins.restartHint')}
+            </div>
+
+            {/* Row 3: Install Plugin button (Primary, white, extracts even from zip archives) */}
+            <div className="pt-2 border-t border-zinc-800/70 space-y-1.5">
+              <button
+                onClick={() => installPluginArchive()}
+                className="bg-white text-black font-semibold hover:bg-zinc-200 transition-colors cursor-pointer rounded-lg px-4 py-2 text-xs shadow-sm flex items-center gap-2 active:scale-95"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>{t('settings.plugins.installPluginBtn')}</span>
+              </button>
+              <p className="text-[11px] text-zinc-400 leading-normal px-1">
+                {t('settings.plugins.installPluginDesc')}
+              </p>
+            </div>
+
+            {/* =============================================================== */}
+            {/* 3. ALREADY INSTALLED PLUGINS LIST                               */}
+            {/* =============================================================== */}
+            <div className="pt-3 border-t border-zinc-800/80 space-y-3">
+              <h4 className="text-xs font-semibold text-white uppercase font-mono tracking-wider">
+                {t('settings.plugins.installedPluginsTitle')}
+              </h4>
+
+              {plugins.length === 0 ? (
+                /* Empty state with helpful prompt */
+                <div className="p-4 rounded-xl bg-black/40 border border-zinc-800 text-center space-y-3">
+                  <p className="text-xs text-zinc-400">
+                    {t('settings.plugins.noInstalledPlugins', { FuncOverlay_folder: '.' })}
+                  </p>
+                  <button
+                    onClick={() => installPluginArchive()}
+                    className="bg-white text-black font-semibold hover:bg-zinc-200 transition-colors cursor-pointer rounded-lg px-3.5 py-1.5 text-xs shadow-sm inline-flex items-center gap-1.5"
+                  >
+                    <Package className="w-3.5 h-3.5" />
+                    <span>+ Install Example Plugin with Settings</span>
+                  </button>
+                </div>
+              ) : (
+                /* List of Installed Plugins */
+                <div className="space-y-3">
+                  {plugins.map((pf) => (
+                    <InstalledPluginCard
+                      key={pf.metadata.id}
+                      pluginFolder={pf}
+                      onDelete={() => deletePlugin(pf.metadata.id)}
+                      onOpenFolder={() => openExplorer(pf.folderName)}
+                      onUpdateSetting={(key, val) => updatePluginSetting(pf.metadata.id, key, val)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+          </div>
+
         </div>
 
         {/* Footer */}
-        <div className="h-11 px-5 bg-zinc-900 border-t border-zinc-800 flex items-center justify-between text-xs">
-          <span className="text-zinc-500 font-mono">FuncOverlay Settings</span>
+        <div className="pt-4 mt-4 border-t border-zinc-800 flex items-center justify-between shrink-0">
+          <span className="text-[11px] font-mono text-zinc-500">
+            FuncOverlay Configuration Engine
+          </span>
+          {/* Secondary Button: Black with white outline */}
           <button
             onClick={closeSettings}
-            className="px-4 py-1.5 rounded-lg bg-zinc-200 hover:bg-white text-zinc-950 font-medium cursor-pointer transition-colors"
+            className="bg-black text-white font-medium border border-white hover:bg-zinc-900 transition-colors cursor-pointer rounded-lg px-5 py-2 text-xs active:scale-95"
           >
             {t('settings.close')}
           </button>
         </div>
+
+      </div>
+    </div>
+  );
+};
+
+/* ========================================================================= */
+/* INSTALLED PLUGIN CARD WITH INLINE METADATA SETTINGS (STRING, INT, BOOL)    */
+/* ========================================================================= */
+interface InstalledPluginCardProps {
+  pluginFolder: PluginFolder;
+  onDelete: () => void;
+  onOpenFolder: () => void;
+  onUpdateSetting: (settingKey: string, newValue: any) => void;
+}
+
+const InstalledPluginCard: React.FC<InstalledPluginCardProps> = ({
+  pluginFolder,
+  onDelete,
+  onOpenFolder,
+  onUpdateSetting,
+}) => {
+  const { metadata, folderName } = pluginFolder;
+  const { name, description, entryPoint, language, settingsSchema, settings } = metadata;
+
+  return (
+    <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-3.5 hover:border-zinc-700 transition-colors">
+      {/* Top Row: Name & Description on the left, Buttons on the right */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 space-y-1">
+          {/* Name: main text, white color */}
+          <div className="flex items-center gap-2">
+            <h5 className="text-sm font-semibold text-white font-sans leading-tight">
+              {name}
+            </h5>
+            <span className="px-1.5 py-0.2 rounded text-[9px] font-mono uppercase bg-zinc-900 text-zinc-400 border border-zinc-800">
+              {entryPoint}
+            </span>
+          </div>
+          {/* Description: gray text, smaller font */}
+          <p className="text-xs text-zinc-400 leading-relaxed font-sans">
+            {description}
+          </p>
+        </div>
+
+        {/* Secondary Buttons on the right: Black with white outline */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Open Plugin Folder (Secondary) */}
+          <button
+            onClick={onOpenFolder}
+            className="bg-black text-white font-medium border border-white hover:bg-zinc-900 transition-colors cursor-pointer rounded-lg px-3 py-1.5 text-xs flex items-center gap-1.5 active:scale-95"
+            title="Open Folder"
+          >
+            <Folder className="w-3 h-3" />
+            <span>{t('settings.plugins.openPluginFolderBtn')}</span>
+          </button>
+
+          {/* Delete Plugin (Secondary) */}
+          <button
+            onClick={onDelete}
+            className="bg-black text-white font-medium border border-white hover:bg-zinc-900 transition-colors cursor-pointer rounded-lg px-3 py-1.5 text-xs flex items-center gap-1.5 active:scale-95"
+            title="Delete Plugin"
+          >
+            <Trash2 className="w-3 h-3" />
+            <span>{t('settings.plugins.deletePluginBtn')}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Settings of this plugin (Defined by metadata.json: string, int, bool, select) */}
+      {settingsSchema && settingsSchema.length > 0 && (
+        <div className="pt-3 border-t border-zinc-900 space-y-2.5">
+          <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider font-semibold">
+            {t('settings.plugins.pluginSettingsTitle')} (metadata.json)
+          </div>
+
+          <div className="grid grid-cols-1 gap-2.5 bg-black/60 p-3 rounded-lg border border-zinc-900">
+            {settingsSchema.map((def: PluginSettingDefinition) => (
+              <PluginSettingField
+                key={def.key}
+                definition={def}
+                currentValue={settings?.[def.key] !== undefined ? settings[def.key] : def.value}
+                onChange={(newVal) => onUpdateSetting(def.key, newVal)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ========================================================================= */
+/* DYNAMIC SETTING FIELD (STRING, INT, BOOL, SELECT)                         */
+/* ========================================================================= */
+interface PluginSettingFieldProps {
+  definition: PluginSettingDefinition;
+  currentValue: any;
+  onChange: (val: any) => void;
+}
+
+const PluginSettingField: React.FC<PluginSettingFieldProps> = ({
+  definition,
+  currentValue,
+  onChange,
+}) => {
+  const { key, label, type, description, options } = definition;
+
+  return (
+    <div className="flex items-center justify-between gap-3 text-xs">
+      <div className="flex-1">
+        <div className="font-medium text-zinc-200">{label}</div>
+        {description && (
+          <div className="text-[10px] text-zinc-500 leading-tight">{description}</div>
+        )}
+      </div>
+
+      <div className="shrink-0">
+        {/* BOOL TYPE */}
+        {type === 'bool' && (
+          <button
+            type="button"
+            onClick={() => onChange(!currentValue)}
+            className={`w-10 h-5 flex items-center rounded-full p-0.5 transition-colors cursor-pointer border ${
+              currentValue
+                ? 'bg-white border-white justify-end'
+                : 'bg-zinc-900 border-zinc-700 justify-start'
+            }`}
+          >
+            <span
+              className={`w-4 h-4 rounded-full transition-transform ${
+                currentValue ? 'bg-black' : 'bg-zinc-400'
+              }`}
+            />
+          </button>
+        )}
+
+        {/* INT TYPE */}
+        {type === 'int' && (
+          <input
+            type="number"
+            value={currentValue ?? 0}
+            onChange={(e) => onChange(Number(e.target.value))}
+            className="w-24 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-right font-mono text-xs text-white focus:outline-none focus:border-zinc-600"
+          />
+        )}
+
+        {/* STRING TYPE */}
+        {type === 'string' && (
+          <input
+            type="text"
+            value={currentValue ?? ''}
+            onChange={(e) => onChange(e.target.value)}
+            className="w-36 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 font-mono text-xs text-white focus:outline-none focus:border-zinc-600"
+          />
+        )}
+
+        {/* SELECT TYPE */}
+        {type === 'select' && options && (
+          <select
+            value={currentValue}
+            onChange={(e) => onChange(e.target.value)}
+            className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1 font-mono text-xs text-white focus:outline-none focus:border-zinc-600 cursor-pointer"
+          >
+            {options.map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
     </div>
   );

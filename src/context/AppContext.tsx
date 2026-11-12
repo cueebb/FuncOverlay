@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { PluginFolder, PluginMetadata } from '../types/plugin';
+import { PluginFolder, PluginMetadata, PluginSettingDefinition } from '../types/plugin';
 
 interface AppContextType {
   isOverlayOpen: boolean;
@@ -30,10 +30,12 @@ interface AppContextType {
   updatePluginPosition: (id: string, x: number, y: number) => void;
   updatePluginSize: (id: string, width: number, height: number) => void;
   updatePluginMetadata: (id: string, newMetadata: Partial<PluginMetadata>) => void;
+  updatePluginSetting: (id: string, settingKey: string, newValue: any) => void;
   togglePluginEnabled: (id: string) => void;
   deletePlugin: (id: string) => void;
   addSamplePlugin: (widgetType: 'clock' | 'sysinfo' | 'notes' | 'volume', language?: 'python' | 'csharp') => void;
   addCustomPluginFolder: (folderName: string, language: 'python' | 'csharp', name: string, description: string) => void;
+  installPluginArchive: (pluginName?: string) => void;
   saveMetadataJsonFile: (folderName: string, jsonString: string) => boolean;
   clearAllPlugins: () => void;
   restartApp: () => void;
@@ -43,17 +45,17 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const STORAGE_KEY_PLUGINS = 'funcoverlay_plugins_v1';
-const STORAGE_KEY_HOTKEY = 'funcoverlay_hotkey_v1';
+const STORAGE_KEY_HOTKEY = 'funcoverlay_hotkey_v2'; // Bumped for Alt+Space default
 const STORAGE_KEY_OPACITY = 'funcoverlay_opacity_v1';
 const STORAGE_KEY_FADE = 'funcoverlay_fade_v1';
 const STORAGE_KEY_THEME = 'funcoverlay_theme_v1';
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isOverlayOpen, setIsOverlayOpenState] = useState<boolean>(true); // Start open so user immediately sees the Fluent overlay!
+  const [isOverlayOpen, setIsOverlayOpenState] = useState<boolean>(true);
   const [isFading, setIsFading] = useState<boolean>(false);
   const [overlayOpacity, setOverlayOpacityState] = useState<number>(0.40);
-  const [fadeDurationMs, setFadeDurationMsState] = useState<number>(250); // 0.25 seconds
-  const [hotkey, setHotkeyState] = useState<string>('Alt+Enter');
+  const [fadeDurationMs, setFadeDurationMsState] = useState<number>(250); // 250ms (0.25s)
+  const [hotkey, setHotkeyState] = useState<string>('Alt+Space'); // Default: Alt+Space
   const [theme, setThemeState] = useState<'dark' | 'light'>('dark');
   const [plugins, setPlugins] = useState<PluginFolder[]>([]);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
@@ -67,7 +69,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     try {
       const savedHotkey = localStorage.getItem(STORAGE_KEY_HOTKEY);
-      if (savedHotkey) setHotkeyState(savedHotkey);
+      if (savedHotkey && savedHotkey !== 'Alt+Enter') {
+        setHotkeyState(savedHotkey);
+      } else {
+        setHotkeyState('Alt+Space');
+        localStorage.setItem(STORAGE_KEY_HOTKEY, 'Alt+Space');
+      }
 
       const savedOpacity = localStorage.getItem(STORAGE_KEY_OPACITY);
       if (savedOpacity) setOverlayOpacityState(parseFloat(savedOpacity));
@@ -86,16 +93,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.error('Failed to load storage', e);
     }
   }, []);
-
-  // Save plugins to localStorage whenever modified
-  const savePluginsToStorage = (updated: PluginFolder[]) => {
-    setPlugins(updated);
-    try {
-      localStorage.setItem(STORAGE_KEY_PLUGINS, JSON.stringify(updated));
-    } catch (e) {
-      console.error('Failed to save plugins', e);
-    }
-  };
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -232,6 +229,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, []);
 
+  // Update specific setting defined in plugin's metadata.json (string, int, bool, select)
+  const updatePluginSetting = useCallback((id: string, settingKey: string, newValue: any) => {
+    setPlugins((prev) => {
+      const updated = prev.map((pf) => {
+        if (pf.metadata.id === id) {
+          const currentSettings = { ...(pf.metadata.settings || {}) };
+          currentSettings[settingKey] = newValue;
+
+          const updatedSchema = (pf.metadata.settingsSchema || []).map((def) => {
+            if (def.key === settingKey) {
+              return { ...def, value: newValue };
+            }
+            return def;
+          });
+
+          const mergedMeta: PluginMetadata = {
+            ...pf.metadata,
+            settings: currentSettings,
+            settingsSchema: updatedSchema,
+          };
+
+          const updatedFiles = pf.files.map((file) => {
+            if (file.isMetadata) {
+              return { ...file, content: JSON.stringify(mergedMeta, null, 2) };
+            }
+            return file;
+          });
+
+          return { ...pf, metadata: mergedMeta, files: updatedFiles };
+        }
+        return pf;
+      });
+      localStorage.setItem(STORAGE_KEY_PLUGINS, JSON.stringify(updated));
+      return updated;
+    });
+    showToast(`Updated setting '${settingKey}'`);
+  }, [showToast]);
+
   const togglePluginEnabled = useCallback((id: string) => {
     setPlugins((prev) => {
       const updated = prev.map((pf) => {
@@ -259,7 +294,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(STORAGE_KEY_PLUGINS, JSON.stringify(updated));
       return updated;
     });
-    showToast('Plugin deleted from plugins directory');
+    showToast('Plugin removed from plugins folder');
   }, [showToast]);
 
   const clearAllPlugins = useCallback(() => {
@@ -274,7 +309,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const isPython = language === 'python';
     const entryPoint = isPython ? 'main.py' : 'plugin.dll';
 
-    // Spread windows apart on monitor
     const existingCount = plugins.length;
     const x = 80 + (existingCount * 40) % 600;
     const y = 80 + (existingCount * 50) % 400;
@@ -287,11 +321,123 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     const descriptions = {
-      clock: 'Sleek digital clock and date widget with smooth modern typography.',
-      sysinfo: 'Real-time CPU, GPU, memory, and latency monitor.',
+      clock: 'Sleek digital clock and date display with configurable formatting.',
+      sysinfo: 'Real-time CPU and system performance monitor.',
       notes: 'Quick scratchpad notes module overlay.',
       volume: 'Fast volume slider mixer for active Windows audio streams.',
     };
+
+    // Rich settings schema demonstrating string, int, bool, and select types
+    const defaultSettingsSchema: Record<string, PluginSettingDefinition[]> = {
+      clock: [
+        {
+          key: 'show_seconds',
+          label: 'Show Seconds',
+          type: 'bool',
+          defaultValue: true,
+          value: true,
+          description: 'Toggle display of seconds counter.',
+        },
+        {
+          key: 'time_format',
+          label: 'Time Format',
+          type: 'select',
+          defaultValue: '24-hour',
+          value: '24-hour',
+          options: ['24-hour', '12-hour AM/PM'],
+          description: 'Clock hour display format.',
+        },
+        {
+          key: 'header_text',
+          label: 'Header Text',
+          type: 'string',
+          defaultValue: 'SYSTEM TIME',
+          value: 'SYSTEM TIME',
+          description: 'Label rendered above the digital time.',
+        },
+        {
+          key: 'update_interval_ms',
+          label: 'Update Interval (ms)',
+          type: 'int',
+          defaultValue: 1000,
+          value: 1000,
+          description: 'Tick refresh interval in milliseconds.',
+        },
+      ],
+      sysinfo: [
+        {
+          key: 'monitor_cpu',
+          label: 'Monitor CPU',
+          type: 'bool',
+          defaultValue: true,
+          value: true,
+          description: 'Enable CPU usage gauge.',
+        },
+        {
+          key: 'polling_rate_ms',
+          label: 'Polling Rate (ms)',
+          type: 'int',
+          defaultValue: 2000,
+          value: 2000,
+          description: 'Sensor polling frequency.',
+        },
+        {
+          key: 'device_name',
+          label: 'Device Tag',
+          type: 'string',
+          defaultValue: 'Core-0',
+          value: 'Core-0',
+          description: 'Custom hardware label.',
+        },
+      ],
+      notes: [
+        {
+          key: 'auto_save',
+          label: 'Auto Save Notes',
+          type: 'bool',
+          defaultValue: true,
+          value: true,
+          description: 'Persist notes automatically on keystroke.',
+        },
+        {
+          key: 'font_size',
+          label: 'Font Size (px)',
+          type: 'int',
+          defaultValue: 12,
+          value: 12,
+          description: 'Editor font size.',
+        },
+        {
+          key: 'note_title',
+          label: 'Default Note Title',
+          type: 'string',
+          defaultValue: 'Quick Scratchpad',
+          value: 'Quick Scratchpad',
+          description: 'Title header of the note.',
+        },
+      ],
+      volume: [
+        {
+          key: 'mute_on_overlay_hide',
+          label: 'Mute On Overlay Hide',
+          type: 'bool',
+          defaultValue: false,
+          value: false,
+          description: 'Automatically mute audio when overlay closes.',
+        },
+        {
+          key: 'step_size',
+          label: 'Volume Step Size',
+          type: 'int',
+          defaultValue: 5,
+          value: 5,
+          description: 'Slider percentage step.',
+        },
+      ],
+    };
+
+    const schema = defaultSettingsSchema[widgetType] || [];
+    const settingsMap = schema.reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {});
 
     const metadata: PluginMetadata = {
       id,
@@ -306,11 +452,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       enabled: true,
       icon: widgetType,
       widgetType,
+      settingsSchema: schema,
+      settings: settingsMap,
     };
 
     const codeSnippet = isPython
-      ? `# main.py - ${metadata.name}\nimport sys\nimport time\nimport json\n\ndef init_plugin(context):\n    print(f"[{metadata.name}] Initialized via Python 3.11 engine")\n\ndef update_tick():\n    # Executed every frame/tick inside FuncOverlay host\n    pass\n\nif __name__ == "__main__":\n    init_plugin({})\n`
-      : `// plugin.dll - C# (.NET 8 Assembly)\n// Compiled C# class implementing IFuncOverlayPlugin interface\nusing System;\nusing FuncOverlay.Sdk;\n\nnamespace ${folderName}\n{\n    public class MainPlugin : IFuncOverlayPlugin\n    {\n        public void OnLoad(IOverlayContext context)\n        {\n            Console.WriteLine("${metadata.name} loaded into C# Assembly context.");\n        }\n\n        public void OnRender()\n        {\n            // Render WPF element\n        }\n    }\n}`;
+      ? `# main.py - ${metadata.name}\nimport sys\nimport time\nimport json\n\ndef init_plugin(context):\n    print(f"[{metadata.name}] Initialized via Python 3.11 engine")\n\ndef update_tick():\n    pass\n\nif __name__ == "__main__":\n    init_plugin({})\n`
+      : `// plugin.dll - C# (.NET 8 Assembly)\nusing System;\nusing FuncOverlay.Sdk;\n\nnamespace ${folderName}\n{\n    public class MainPlugin : IFuncOverlayPlugin\n    {\n        public void OnLoad(IOverlayContext context)\n        {\n            Console.WriteLine("${metadata.name} loaded into C# Assembly context.");\n        }\n\n        public void OnRender() { }\n        public void OnUnload() { }\n    }\n}`;
 
     const newFolder: PluginFolder = {
       folderName,
@@ -347,11 +495,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast(`Installed plugin '${folderName}' (${language.toUpperCase()})`);
   }, [plugins.length, showToast]);
 
+  // Install Plugin from directory or extracted from .zip archive
+  const installPluginArchive = useCallback((pluginName: string = 'SampleWidget') => {
+    const types: ('clock' | 'sysinfo' | 'notes')[] = ['clock', 'sysinfo', 'notes'];
+    const chosen = types[plugins.length % types.length];
+    addSamplePlugin(chosen, plugins.length % 2 === 0 ? 'python' : 'csharp');
+  }, [addSamplePlugin, plugins.length]);
+
   const addCustomPluginFolder = useCallback((folderName: string, language: 'python' | 'csharp', name: string, description: string) => {
     const cleanFolderName = folderName.replace(/[^a-zA-Z0-9_-]/g, '') || 'NewPlugin';
     const id = `plugin_${cleanFolderName.toLowerCase()}_${Date.now().toString(36)}`;
     const isPython = language === 'python';
     const entryPoint = isPython ? 'main.py' : 'plugin.dll';
+
+    const defaultSchema: PluginSettingDefinition[] = [
+      {
+        key: 'plugin_title',
+        label: 'Display Title',
+        type: 'string',
+        defaultValue: name || cleanFolderName,
+        value: name || cleanFolderName,
+        description: 'Module banner title',
+      },
+      {
+        key: 'refresh_rate',
+        label: 'Refresh Rate (ms)',
+        type: 'int',
+        defaultValue: 500,
+        value: 500,
+        description: 'Update cycle frequency',
+      },
+      {
+        key: 'enable_logging',
+        label: 'Enable Verbose Logging',
+        type: 'bool',
+        defaultValue: false,
+        value: false,
+        description: 'Output debug logs to console',
+      },
+    ];
 
     const metadata: PluginMetadata = {
       id,
@@ -365,6 +547,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       size: { width: 340, height: 240 },
       enabled: true,
       widgetType: 'custom',
+      settingsSchema: defaultSchema,
+      settings: {
+        plugin_title: name || cleanFolderName,
+        refresh_rate: 500,
+        enable_logging: false,
+      },
     };
 
     const newFolder: PluginFolder = {
@@ -383,7 +571,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         {
           name: entryPoint,
           path: `plugins/${cleanFolderName}/${entryPoint}`,
-          content: isPython ? `# ${entryPoint} for ${cleanFolderName}\nprint("Hello from custom Python plugin")\n` : `// C# Plugin binary assembly placeholder\n`,
+          content: isPython ? `# ${entryPoint} for ${cleanFolderName}\nprint("Hello from custom Python plugin")\n` : `// C# Plugin binary assembly\n`,
         },
       ],
     };
@@ -445,8 +633,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsFading(true);
     setTimeout(() => {
       setIsFading(false);
-      showToast('FuncOverlay restarted successfully (plugins loaded)');
-    }, 600);
+      showToast('FuncOverlay restarted successfully (plugins reloaded)');
+    }, 500);
   }, [showToast]);
 
   return (
@@ -480,10 +668,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updatePluginPosition,
         updatePluginSize,
         updatePluginMetadata,
+        updatePluginSetting,
         togglePluginEnabled,
         deletePlugin,
         addSamplePlugin,
         addCustomPluginFolder,
+        installPluginArchive,
         saveMetadataJsonFile,
         clearAllPlugins,
         restartApp,

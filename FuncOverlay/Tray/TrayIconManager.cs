@@ -13,7 +13,7 @@ namespace FuncOverlay.Tray
         public void Initialize(Action toggle, Action openSettings, Action restart)
         {
             ContextMenuStrip menu = new ContextMenuStrip();
-            menu.Items.Add("Toggle Overlay (Alt+Enter)", null, (s, e) => toggle());
+            menu.Items.Add("Toggle Overlay (Alt+Space)", null, (s, e) => toggle());
             menu.Items.Add("Settings...", null, (s, e) => openSettings());
             menu.Items.Add("Open 'plugins' Folder", null, (s, e) => OpenPluginsFolder());
             menu.Items.Add(new ToolStripSeparator());

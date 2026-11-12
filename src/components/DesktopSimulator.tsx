@@ -16,6 +16,7 @@ export const DesktopSimulator: React.FC = () => {
       const targetKey = parts[parts.length - 1];
 
       let keyPressed = e.key.toLowerCase();
+      if (e.code.toLowerCase() === 'space' || e.key === ' ') keyPressed = 'space';
       if (e.code.toLowerCase() === 'enter') keyPressed = 'enter';
 
       if (

@@ -103,7 +103,7 @@ namespace FuncOverlay
 
         public void OpenSettingsWindow()
         {
-            MessageBox.Show("FuncOverlay Settings\n\nGlobal Hotkey: Alt+Enter\nTransition: 0.25s\nPlugins Root: " + _pluginManager.PluginsDirectory,
+            System.Windows.MessageBox.Show("FuncOverlay Settings\n\nGlobal Hotkey: Alt+Enter\nTransition: 0.25s\nPlugins Root: " + _pluginManager.PluginsDirectory,
                 "FuncOverlay Settings", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 

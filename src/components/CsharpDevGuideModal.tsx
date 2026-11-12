@@ -5,7 +5,7 @@ import { Terminal, Copy, Check, X } from 'lucide-react';
 
 export const CsharpDevGuideModal: React.FC = () => {
   const { isCsharpSpecOpen, closeCsharpSpec, showToast } = useApp();
-  const [activeSnippet, setActiveSnippet] = useState<'workflow' | 'nsis' | 'main' | 'pluginManager' | 'tray' | 'interface'>('workflow');
+  const [activeSnippet, setActiveSnippet] = useState<'workflow' | 'nsis' | 'app' | 'main' | 'pluginManager' | 'tray' | 'interface'>('workflow');
   const [copied, setCopied] = useState(false);
 
   if (!isCsharpSpecOpen) return null;
@@ -164,6 +164,53 @@ Section Uninstall
   DeleteRegKey \${PRODUCT_UNINST_ROOT_KEY} "\${PRODUCT_UNINST_KEY}"
   DeleteRegKey \${PRODUCT_UNINST_ROOT_KEY} "\${PRODUCT_DIR_REGKEY}"
 SectionEnd`,
+
+    app: `// =========================================================================
+// FuncOverlay - App.xaml.cs & FuncOverlay.csproj
+// Resolves CS0104 'Application' ambiguity between WPF and Windows Forms.
+// =========================================================================
+using System;
+using System.Windows;
+using FuncOverlay.Tray;
+using FuncOverlay.Core;
+
+namespace FuncOverlay
+{
+    // Explicit System.Windows.Application avoids ambiguity with WinForms Application
+    public partial class App : System.Windows.Application
+    {
+        private MainWindow? _mainWindow;
+        private TrayIconManager? _trayManager;
+        private PluginManager? _pluginManager;
+
+        private void Application_Startup(object sender, System.Windows.StartupEventArgs e)
+        {
+            _pluginManager = new PluginManager();
+            _pluginManager.LoadAllPlugins();
+
+            _mainWindow = new MainWindow(_pluginManager);
+            _mainWindow.Show();
+
+            _trayManager = new TrayIconManager();
+            _trayManager.Initialize(
+                toggle: () => _mainWindow.ToggleOverlayWithAnimation(),
+                openSettings: () => _mainWindow.OpenSettingsWindow(),
+                restart: () => RestartApplication()
+            );
+        }
+
+        private void RestartApplication()
+        {
+            _pluginManager?.LoadAllPlugins();
+            _mainWindow?.ReloadOverlayContent();
+        }
+
+        private void Application_Exit(object sender, System.Windows.ExitEventArgs e)
+        {
+            _trayManager?.Dispose();
+        }
+    }
+}`,
 
     main: `// =========================================================================
 // FuncOverlay - MainWindow.xaml.cs (C# .NET 8 WPF / WinUI 3)
@@ -385,6 +432,16 @@ namespace FuncOverlay.Sdk
               }`}
             >
               FuncOverlay.nsi (NSIS)
+            </button>
+            <button
+              onClick={() => setActiveSnippet('app')}
+              className={`px-2.5 py-1.5 rounded-t transition-colors cursor-pointer whitespace-nowrap ${
+                activeSnippet === 'app'
+                  ? 'bg-zinc-900 text-white font-bold border-t-2 border-zinc-300'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              App.xaml.cs
             </button>
             <button
               onClick={() => setActiveSnippet('main')}

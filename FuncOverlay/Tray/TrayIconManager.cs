@@ -18,7 +18,7 @@ namespace FuncOverlay.Tray
             menu.Items.Add("Open 'plugins' Folder", null, (s, e) => OpenPluginsFolder());
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Restart Application", null, (s, e) => restart());
-            menu.Items.Add("Exit FuncOverlay", null, (s, e) => System.Windows.Application.Current.Shutdown());
+            menu.Items.Add("Exit FuncOverlay", null, (s, e) => System.Windows.Application.Current?.Dispatcher.Invoke(() => System.Windows.Application.Current.Shutdown()));
 
             _notifyIcon = new NotifyIcon
             {

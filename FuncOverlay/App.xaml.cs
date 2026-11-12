@@ -5,13 +5,13 @@ using FuncOverlay.Core;
 
 namespace FuncOverlay
 {
-    public partial class App : Application
+    public partial class App : System.Windows.Application
     {
         private MainWindow? _mainWindow;
         private TrayIconManager? _trayManager;
         private PluginManager? _pluginManager;
 
-        private void Application_Startup(object sender, StartupEventArgs e)
+        private void Application_Startup(object sender, System.Windows.StartupEventArgs e)
         {
             // Initialize Core Plugin Manager
             _pluginManager = new PluginManager();
@@ -36,7 +36,7 @@ namespace FuncOverlay
             _mainWindow?.ReloadOverlayContent();
         }
 
-        private void Application_Exit(object sender, ExitEventArgs e)
+        private void Application_Exit(object sender, System.Windows.ExitEventArgs e)
         {
             _trayManager?.Dispose();
         }

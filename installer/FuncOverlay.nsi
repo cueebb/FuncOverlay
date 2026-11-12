@@ -17,6 +17,8 @@
 
 ; MUI Settings
 !define MUI_ABORTWARNING
+!define MUI_ICON "..\FuncOverlay\app.ico"
+!define MUI_UNICON "..\FuncOverlay\app.ico"
 
 ; Pages
 !insertmacro MUI_PAGE_WELCOME

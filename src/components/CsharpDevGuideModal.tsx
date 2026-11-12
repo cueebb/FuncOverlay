@@ -5,7 +5,7 @@ import { Terminal, Copy, Check, X } from 'lucide-react';
 
 export const CsharpDevGuideModal: React.FC = () => {
   const { isCsharpSpecOpen, closeCsharpSpec, showToast } = useApp();
-  const [activeSnippet, setActiveSnippet] = useState<'workflow' | 'nsis' | 'app' | 'main' | 'pluginManager' | 'tray' | 'interface'>('workflow');
+  const [activeSnippet, setActiveSnippet] = useState<'workflow' | 'nsis' | 'app' | 'settings' | 'main' | 'pluginManager' | 'tray' | 'interface'>('workflow');
   const [copied, setCopied] = useState(false);
 
   if (!isCsharpSpecOpen) return null;
@@ -208,6 +208,57 @@ namespace FuncOverlay
         private void Application_Exit(object sender, System.Windows.ExitEventArgs e)
         {
             _trayManager?.Dispose();
+        }
+    }
+}`,
+
+    settings: `// =========================================================================
+// FuncOverlay - SettingsWindow.xaml.cs (C# .NET 8 WPF)
+// Implements: General (Transition ms, Overlay Alpha, Hotkey Recorder Alt+Space),
+// Plugins (Open folder, Restart, Install .zip archive, Dynamic metadata settings)
+// =========================================================================
+using System;
+using System.IO;
+using System.Diagnostics;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using Microsoft.Win32;
+using FuncOverlay.Core;
+
+namespace FuncOverlay
+{
+    public partial class SettingsWindow : Window
+    {
+        private readonly PluginManager _pluginManager;
+        private readonly MainWindow _mainWindow;
+        private bool _isRecordingKeybind = false;
+
+        public SettingsWindow(PluginManager pluginManager, MainWindow mainWindow)
+        {
+            _pluginManager = pluginManager;
+            _mainWindow = mainWindow;
+            InitializeComponent();
+
+            TransitionSlider.Value = _mainWindow.FadeDurationMs;
+            AlphaSlider.Value = Math.Round(_mainWindow.OverlayOpacity * 100);
+            HotkeyTextBox.Text = _mainWindow.HotkeyDisplayString;
+            RefreshInstalledPluginsList();
+        }
+
+        private void InstallPlugin_Click(object sender, RoutedEventArgs e)
+        {
+            OpenFileDialog dlg = new OpenFileDialog
+            {
+                Title = "Select Plugin Archive (.zip)",
+                Filter = "Plugin Archive (*.zip)|*.zip|All Files (*.*)|*.*"
+            };
+            if (dlg.ShowDialog() == true)
+            {
+                _pluginManager.ExtractPluginArchive(dlg.FileName);
+                _mainWindow.ReloadOverlayContent();
+                RefreshInstalledPluginsList();
+            }
         }
     }
 }`,
@@ -442,6 +493,16 @@ namespace FuncOverlay.Sdk
               }`}
             >
               App.xaml.cs
+            </button>
+            <button
+              onClick={() => setActiveSnippet('settings')}
+              className={`px-2.5 py-1.5 rounded-t transition-colors cursor-pointer whitespace-nowrap ${
+                activeSnippet === 'settings'
+                  ? 'bg-zinc-900 text-white font-bold border-t-2 border-zinc-300'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              SettingsWindow.xaml.cs
             </button>
             <button
               onClick={() => setActiveSnippet('main')}

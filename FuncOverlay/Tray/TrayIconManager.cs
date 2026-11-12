@@ -20,9 +20,24 @@ namespace FuncOverlay.Tray
             menu.Items.Add("Restart Application", null, (s, e) => restart());
             menu.Items.Add("Exit FuncOverlay", null, (s, e) => System.Windows.Application.Current?.Dispatcher.Invoke(() => System.Windows.Application.Current.Shutdown()));
 
+            // Load custom application icon if present
+            Icon trayIcon = SystemIcons.Application;
+            string iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
+            if (File.Exists(iconPath))
+            {
+                try
+                {
+                    trayIcon = new Icon(iconPath);
+                }
+                catch
+                {
+                    trayIcon = SystemIcons.Application;
+                }
+            }
+
             _notifyIcon = new NotifyIcon
             {
-                Icon = SystemIcons.Application,
+                Icon = trayIcon,
                 Text = "FuncOverlay",
                 ContextMenuStrip = menu,
                 Visible = true

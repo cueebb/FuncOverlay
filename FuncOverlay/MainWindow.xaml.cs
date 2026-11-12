@@ -1,7 +1,9 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
 using FuncOverlay.Core;
 
@@ -10,8 +12,8 @@ namespace FuncOverlay
     public partial class MainWindow : Window
     {
         private const int HOTKEY_ID = 9000;
-        private const uint MOD_ALT = 0x0001;
-        private const uint VK_SPACE = 0x20; // Alt + Space default
+        private uint _currentModifiers = 0x0001; // MOD_ALT
+        private uint _currentVk = 0x20;          // VK_SPACE
 
         [DllImport("user32.dll")]
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
@@ -21,7 +23,11 @@ namespace FuncOverlay
 
         private readonly PluginManager _pluginManager;
         private bool _isOverlayVisible = true;
+        private IntPtr _windowHandle;
 
+        public int FadeDurationMs { get; set; } = 250;
+        public double OverlayOpacity { get; set; } = 0.40;
+        public string HotkeyDisplayString { get; set; } = "Alt + Space";
         public string PathHintText { get; set; } = "{FuncOverlay_folder}/plugins/{plugin_folder}";
 
         public MainWindow(PluginManager pluginManager)
@@ -35,10 +41,10 @@ namespace FuncOverlay
         protected override void OnSourceInitialized(EventArgs e)
         {
             base.OnSourceInitialized(e);
-            IntPtr handle = new WindowInteropHelper(this).Handle;
-            RegisterHotKey(handle, HOTKEY_ID, MOD_ALT, VK_SPACE);
+            _windowHandle = new WindowInteropHelper(this).Handle;
+            RegisterHotKey(_windowHandle, HOTKEY_ID, _currentModifiers, _currentVk);
 
-            HwndSource source = HwndSource.FromHwnd(handle);
+            HwndSource source = HwndSource.FromHwnd(_windowHandle);
             source.AddHook(HwndHook);
 
             // Initially fade in overlay
@@ -64,10 +70,14 @@ namespace FuncOverlay
 
         private void AnimateOpacity(double targetOpacity)
         {
+            // Adjust backdrop color opacity according to settings
+            byte alphaByte = (byte)(OverlayOpacity * 255);
+            BackdropTint.Background = new SolidColorBrush(Color.FromArgb(alphaByte, 0, 0, 0));
+
             DoubleAnimation fade = new DoubleAnimation
             {
                 To = targetOpacity,
-                Duration = TimeSpan.FromSeconds(0.25),
+                Duration = TimeSpan.FromMilliseconds(FadeDurationMs),
                 EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
             };
 
@@ -87,6 +97,30 @@ namespace FuncOverlay
             OverlayRootGrid.BeginAnimation(UIElement.OpacityProperty, fade);
         }
 
+        public void UpdateHotkey(string display, ModifierKeys modifiers, Key key)
+        {
+            HotkeyDisplayString = display;
+
+            uint fsMod = 0;
+            if (modifiers.HasFlag(ModifierKeys.Alt)) fsMod |= 0x0001;
+            if (modifiers.HasFlag(ModifierKeys.Control)) fsMod |= 0x0002;
+            if (modifiers.HasFlag(ModifierKeys.Shift)) fsMod |= 0x0004;
+
+            int vkCode = KeyInterop.VirtualKeyFromKey(key);
+            uint vk = (uint)vkCode;
+
+            if (_windowHandle != IntPtr.Zero)
+            {
+                UnregisterHotKey(_windowHandle, HOTKEY_ID);
+                bool success = RegisterHotKey(_windowHandle, HOTKEY_ID, fsMod, vk);
+                if (success)
+                {
+                    _currentModifiers = fsMod;
+                    _currentVk = vk;
+                }
+            }
+        }
+
         public void ReloadOverlayContent()
         {
             if (_pluginManager.LoadedPlugins.Count == 0)
@@ -103,14 +137,17 @@ namespace FuncOverlay
 
         public void OpenSettingsWindow()
         {
-            System.Windows.MessageBox.Show("FuncOverlay Settings\n\nGlobal Hotkey: Alt+Enter\nTransition: 0.25s\nPlugins Root: " + _pluginManager.PluginsDirectory,
-                "FuncOverlay Settings", MessageBoxButton.OK, MessageBoxImage.Information);
+            SettingsWindow settings = new SettingsWindow(_pluginManager, this);
+            settings.Owner = this;
+            settings.ShowDialog();
         }
 
         protected override void OnClosed(EventArgs e)
         {
-            IntPtr handle = new WindowInteropHelper(this).Handle;
-            UnregisterHotKey(handle, HOTKEY_ID);
+            if (_windowHandle != IntPtr.Zero)
+            {
+                UnregisterHotKey(_windowHandle, HOTKEY_ID);
+            }
             base.OnClosed(e);
         }
     }

@@ -1,0 +1,209 @@
+<Window x:Class="FuncOverlay.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="FuncOverlay Settings"
+        Width="680" Height="640"
+        MinWidth="560" MinHeight="500"
+        WindowStartupLocation="CenterScreen"
+        Background="#09090B"
+        Foreground="#FFFFFFFF"
+        FontFamily="Segoe UI, Arial">
+
+    <Window.Resources>
+        <!-- Primary Button Style: Pure White Background, Black Text -->
+        <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#FFFFFFFF" />
+            <Setter Property="Foreground" Value="#FF000000" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="16,8" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#FFE4E4E7" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#FFD4D4D8" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Opacity" Value="0.4" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Secondary Button Style: Black Background, 1px White Outline, White Text -->
+        <Style x:Key="SecondaryButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#FF000000" />
+            <Setter Property="Foreground" Value="#FFFFFFFF" />
+            <Setter Property="FontWeight" Value="Medium" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="14,7" />
+            <Setter Property="BorderBrush" Value="#FFFFFFFF" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#FF18181B" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#FF27272A" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Title & Subtitle Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <TextBlock Text="Settings" FontSize="20" FontWeight="Bold" Foreground="#FFFFFFFF" />
+            <TextBlock Text="Configure global overlay appearance, trigger hotkey, and manage plugins"
+                       FontSize="12" Foreground="#FFA1A1AA" Margin="0,4,0,0" />
+            <Separator Background="#FF27272A" Margin="0,16,0,0" />
+        </StackPanel>
+
+        <!-- Scrollable Settings Body -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,16">
+            <StackPanel Margin="0,0,12,0">
+
+                <!-- =============================================================== -->
+                <!-- 1. GENERAL SECTION                                              -->
+                <!-- =============================================================== -->
+                <Border Background="#CC18181B" BorderBrush="#FF27272A" BorderThickness="1" CornerRadius="12" Padding="20" Margin="0,0,0,20">
+                    <StackPanel>
+                        <TextBlock Text="GENERAL" FontSize="11" FontWeight="Bold" FontFamily="Consolas" Foreground="#FFE4E4E7" Margin="0,0,0,16" />
+
+                        <!-- Transition (ms) -->
+                        <Grid Margin="0,0,0,4">
+                            <TextBlock Text="Transition (ms)" FontWeight="SemiBold" FontSize="12" Foreground="#FFFFFFFF" />
+                            <TextBlock x:Name="TransitionValueText" Text="250 ms" FontWeight="Bold" FontSize="12" FontFamily="Consolas"
+                                       Foreground="#FFE4E4E7" HorizontalAlignment="Right" />
+                        </Grid>
+                        <Slider x:Name="TransitionSlider" Minimum="50" Maximum="1000" SmallChange="25" LargeChange="50" Value="250"
+                                ValueChanged="TransitionSlider_ValueChanged" Margin="0,4,0,2" />
+                        <TextBlock Text="Duration of the screen tint animation in milliseconds (Default: 250ms)."
+                                   FontSize="11" Foreground="#FFA1A1AA" Margin="0,0,0,16" />
+
+                        <Separator Background="#FF27272A" Margin="0,0,0,16" />
+
+                        <!-- Overlay Alpha (0-100%) -->
+                        <Grid Margin="0,0,0,4">
+                            <TextBlock Text="Overlay Alpha" FontWeight="SemiBold" FontSize="12" Foreground="#FFFFFFFF" />
+                            <TextBlock x:Name="AlphaValueText" Text="40%" FontWeight="Bold" FontSize="12" FontFamily="Consolas"
+                                       Foreground="#FFE4E4E7" HorizontalAlignment="Right" />
+                        </Grid>
+                        <Slider x:Name="AlphaSlider" Minimum="5" Maximum="100" SmallChange="5" LargeChange="10" Value="40"
+                                ValueChanged="AlphaSlider_ValueChanged" Margin="0,4,0,2" />
+                        <TextBlock Text="Regulates how dark the screen overlay is (0-100%). Default: 40%."
+                                   FontSize="11" Foreground="#FFA1A1AA" Margin="0,0,0,16" />
+
+                        <Separator Background="#FF27272A" Margin="0,0,0,16" />
+
+                        <!-- Global Hotkey -->
+                        <TextBlock Text="Global Hotkey" FontWeight="SemiBold" FontSize="12" Foreground="#FFFFFFFF" Margin="0,0,0,6" />
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="HotkeyTextBox" Text="Alt + Space" IsReadOnly="True"
+                                     Background="#FF000000" Foreground="#FFFFFFFF" BorderBrush="#FF27272A"
+                                     FontFamily="Consolas" FontSize="12" FontWeight="SemiBold"
+                                     Padding="12,8" VerticalContentAlignment="Center" Margin="0,0,8,0" />
+                            <Button x:Name="ChangeKeybindButton" Grid.Column="1" Style="{StaticResource PrimaryButtonStyle}"
+                                    Content="Change Keybind" Click="ChangeKeybindButton_Click" Margin="0,0,8,0" />
+                            <Button Grid.Column="2" Style="{StaticResource SecondaryButtonStyle}"
+                                    Content="Reset (Alt+Space)" Click="ResetKeybindButton_Click" />
+                        </Grid>
+                        <TextBlock x:Name="KeybindRecordingHint" Text="Press shortcut (Ctrl, Alt, Shift + any key)..."
+                                   FontSize="11" Foreground="#FFE4E4E7" Visibility="Collapsed" Margin="0,4,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <!-- =============================================================== -->
+                <!-- 2. PLUGINS SECTION                                              -->
+                <!-- =============================================================== -->
+                <Border Background="#CC18181B" BorderBrush="#FF27272A" BorderThickness="1" CornerRadius="12" Padding="20">
+                    <StackPanel>
+                        <TextBlock Text="PLUGINS" FontSize="11" FontWeight="Bold" FontFamily="Consolas" Foreground="#FFE4E4E7" Margin="0,0,0,16" />
+
+                        <!-- Row 1: Open Plugins Folder (Primary) & Restart FuncOverlay (Secondary) -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Style="{StaticResource PrimaryButtonStyle}"
+                                    Content="Open Plugins Folder"
+                                    Click="OpenPluginsFolder_Click"
+                                    Margin="0,0,10,0" />
+                            <Button Style="{StaticResource SecondaryButtonStyle}"
+                                    Content="Restart FuncOverlay"
+                                    Click="RestartFuncOverlay_Click" />
+                        </StackPanel>
+
+                        <!-- Row 2: Clearly visible gray hint text -->
+                        <TextBlock Text="You need to restart FuncOverlay for the changes to take effect."
+                                   FontSize="12" Foreground="#FFA1A1AA" Margin="0,0,0,16" />
+
+                        <!-- Row 3: Install Plugin button (Primary, extracts even from zip archives) -->
+                        <Button Style="{StaticResource PrimaryButtonStyle}"
+                                Content="Install Plugin"
+                                HorizontalAlignment="Left"
+                                Click="InstallPlugin_Click"
+                                Margin="0,0,0,4" />
+                        <TextBlock Text="Extracts plugins from directory folders or .zip archives into plugins directory."
+                                   FontSize="11" Foreground="#FFA1A1AA" Margin="0,0,0,20" />
+
+                        <Separator Background="#FF27272A" Margin="0,0,0,16" />
+
+                        <!-- Installed Plugins Subheading -->
+                        <TextBlock Text="INSTALLED PLUGINS" FontSize="11" FontWeight="Bold" FontFamily="Consolas" Foreground="#FFE4E4E7" Margin="0,0,0,12" />
+
+                        <!-- Dynamic Items Control for Plugins -->
+                        <StackPanel x:Name="InstalledPluginsPanel">
+                            <TextBlock x:Name="NoPluginsText" Text="No plugins currently installed in plugins directory."
+                                       FontSize="12" Foreground="#FFA1A1AA" Margin="0,8,0,8" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer -->
+        <Grid Grid.Row="2" Margin="0,8,0,0">
+            <TextBlock Text="FuncOverlay Native Host" FontSize="11" FontFamily="Consolas" Foreground="#FF71717A" VerticalAlignment="Center" />
+            <Button Style="{StaticResource SecondaryButtonStyle}" Content="Close" HorizontalAlignment="Right" Click="CloseButton_Click" />
+        </Grid>
+    </Grid>
+</Window>

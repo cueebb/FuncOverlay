@@ -152,7 +152,7 @@ namespace FuncOverlay.Core
             return false;
         }
 
-        public bool UpdatePluginSetting(string folderName, string settingKey, object newValue)
+        public bool UpdatePluginSetting(string folderName, string settingKey, object? newValue)
         {
             try
             {

@@ -8,6 +8,10 @@ using System.Windows.Media;
 using Microsoft.Win32;
 using FuncOverlay.Core;
 
+using MediaColor = System.Windows.Media.Color;
+using MediaBrushes = System.Windows.Media.Brushes;
+using MediaFontFamily = System.Windows.Media.FontFamily;
+
 namespace FuncOverlay
 {
     public partial class SettingsWindow : Window
@@ -187,8 +191,8 @@ namespace FuncOverlay
         {
             Border border = new Border
             {
-                Background = new SolidColorBrush(Color.FromRgb(15, 15, 18)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(39, 39, 42)),
+                Background = new SolidColorBrush(MediaColor.FromRgb(15, 15, 18)),
+                BorderBrush = new SolidColorBrush(MediaColor.FromRgb(39, 39, 42)),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(10),
                 Padding = new Thickness(16),
@@ -210,12 +214,12 @@ namespace FuncOverlay
                 Text = plugin.Metadata.name,
                 FontWeight = FontWeights.SemiBold,
                 FontSize = 13,
-                Foreground = Brushes.White
+                Foreground = MediaBrushes.White
             };
             Border langBadge = new Border
             {
-                Background = new SolidColorBrush(Color.FromRgb(24, 24, 27)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(39, 39, 42)),
+                Background = new SolidColorBrush(MediaColor.FromRgb(24, 24, 27)),
+                BorderBrush = new SolidColorBrush(MediaColor.FromRgb(39, 39, 42)),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(4),
                 Padding = new Thickness(6, 1, 6, 1),
@@ -225,9 +229,9 @@ namespace FuncOverlay
             TextBlock langText = new TextBlock
             {
                 Text = plugin.Metadata.entryPoint,
-                FontFamily = new FontFamily("Consolas"),
+                FontFamily = new MediaFontFamily("Consolas"),
                 FontSize = 9,
-                Foreground = new SolidColorBrush(Color.FromRgb(161, 161, 170))
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(161, 161, 170))
             };
             langBadge.Child = langText;
             nameRow.Children.Add(nameText);
@@ -237,7 +241,7 @@ namespace FuncOverlay
             {
                 Text = plugin.Metadata.description,
                 FontSize = 11,
-                Foreground = new SolidColorBrush(Color.FromRgb(161, 161, 170)),
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(161, 161, 170)),
                 TextWrapping = TextWrapping.Wrap
             };
             infoPanel.Children.Add(nameRow);
@@ -287,8 +291,8 @@ namespace FuncOverlay
             {
                 Border settingsBox = new Border
                 {
-                    Background = new SolidColorBrush(Color.FromRgb(0, 0, 0)),
-                    BorderBrush = new SolidColorBrush(Color.FromRgb(39, 39, 42)),
+                    Background = new SolidColorBrush(MediaColor.FromRgb(0, 0, 0)),
+                    BorderBrush = new SolidColorBrush(MediaColor.FromRgb(39, 39, 42)),
                     BorderThickness = new Thickness(1),
                     CornerRadius = new CornerRadius(8),
                     Padding = new Thickness(12),
@@ -300,9 +304,9 @@ namespace FuncOverlay
                 {
                     Text = "PLUGIN SETTINGS (metadata.json)",
                     FontSize = 10,
-                    FontFamily = new FontFamily("Consolas"),
+                    FontFamily = new MediaFontFamily("Consolas"),
                     FontWeight = FontWeights.Bold,
-                    Foreground = new SolidColorBrush(Color.FromRgb(113, 113, 122)),
+                    Foreground = new SolidColorBrush(MediaColor.FromRgb(113, 113, 122)),
                     Margin = new Thickness(0, 0, 0, 8)
                 };
                 settingsPanel.Children.Add(settingsHeader);
@@ -314,10 +318,10 @@ namespace FuncOverlay
                     settingRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
                     StackPanel labelPanel = new StackPanel();
-                    labelPanel.Children.Add(new TextBlock { Text = def.label, FontSize = 12, Foreground = new SolidColorBrush(Color.FromRgb(228, 228, 231)) });
+                    labelPanel.Children.Add(new TextBlock { Text = def.label, FontSize = 12, Foreground = new SolidColorBrush(MediaColor.FromRgb(228, 228, 231)) });
                     if (!string.IsNullOrEmpty(def.description))
                     {
-                        labelPanel.Children.Add(new TextBlock { Text = def.description, FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(113, 113, 122)) });
+                        labelPanel.Children.Add(new TextBlock { Text = def.description, FontSize = 10, Foreground = new SolidColorBrush(MediaColor.FromRgb(113, 113, 122)) });
                     }
                     Grid.SetColumn(labelPanel, 0);
                     settingRow.Children.Add(labelPanel);
@@ -343,11 +347,11 @@ namespace FuncOverlay
                         {
                             Text = Convert.ToString(def.value ?? def.defaultValue ?? 0),
                             Width = 70,
-                            Background = new SolidColorBrush(Color.FromRgb(24, 24, 27)),
-                            Foreground = Brushes.White,
-                            BorderBrush = new SolidColorBrush(Color.FromRgb(39, 39, 42)),
+                            Background = new SolidColorBrush(MediaColor.FromRgb(24, 24, 27)),
+                            Foreground = MediaBrushes.White,
+                            BorderBrush = new SolidColorBrush(MediaColor.FromRgb(39, 39, 42)),
                             TextAlignment = TextAlignment.Right,
-                            FontFamily = new FontFamily("Consolas"),
+                            FontFamily = new MediaFontFamily("Consolas"),
                             FontSize = 11,
                             Padding = new Thickness(4, 2, 4, 2)
                         };
@@ -368,8 +372,8 @@ namespace FuncOverlay
                             ItemsSource = def.options,
                             SelectedItem = Convert.ToString(def.value ?? def.defaultValue),
                             Width = 120,
-                            Background = new SolidColorBrush(Color.FromRgb(24, 24, 27)),
-                            Foreground = Brushes.White,
+                            Background = new SolidColorBrush(MediaColor.FromRgb(24, 24, 27)),
+                            Foreground = MediaBrushes.White,
                             FontSize = 11
                         };
                         cb.SelectionChanged += (s, e) =>
@@ -388,16 +392,16 @@ namespace FuncOverlay
                         {
                             Text = Convert.ToString(def.value ?? def.defaultValue ?? ""),
                             Width = 140,
-                            Background = new SolidColorBrush(Color.FromRgb(24, 24, 27)),
-                            Foreground = Brushes.White,
-                            BorderBrush = new SolidColorBrush(Color.FromRgb(39, 39, 42)),
-                            FontFamily = new FontFamily("Consolas"),
+                            Background = new SolidColorBrush(MediaColor.FromRgb(24, 24, 27)),
+                            Foreground = MediaBrushes.White,
+                            BorderBrush = new SolidColorBrush(MediaColor.FromRgb(39, 39, 42)),
+                            FontFamily = new MediaFontFamily("Consolas"),
                             FontSize = 11,
                             Padding = new Thickness(4, 2, 4, 2)
                         };
                         txt.LostFocus += (s, e) =>
                         {
-                            _pluginManager.UpdatePluginSetting(plugin.FolderName, def.key, txt.Text);
+                            _pluginManager.UpdatePluginSetting(plugin.FolderName, def.key, txt.Text ?? "");
                         };
                         Grid.SetColumn(txt, 1);
                         settingRow.Children.Add(txt);

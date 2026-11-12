@@ -72,7 +72,7 @@ namespace FuncOverlay
         {
             // Adjust backdrop color opacity according to settings
             byte alphaByte = (byte)(OverlayOpacity * 255);
-            BackdropTint.Background = new SolidColorBrush(Color.FromArgb(alphaByte, 0, 0, 0));
+            BackdropTint.Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(alphaByte, 0, 0, 0));
 
             DoubleAnimation fade = new DoubleAnimation
             {

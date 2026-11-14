@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -51,20 +52,22 @@ namespace FuncOverlay.Core
             Process = process;
         }
 
-        public void WriteJsonLine(object payload)
+        public bool WriteJsonLine(object payload)
         {
             lock (WriteLock)
             {
                 try
                 {
-                    if (Process.HasExited) return;
+                    if (Process.HasExited) return false;
                     string json = JsonSerializer.Serialize(payload);
                     Process.StandardInput.WriteLine(json);
                     Process.StandardInput.Flush();
+                    return true;
                 }
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"PluginHost WriteJsonLine error ({Folder.FolderName}): {ex.Message}");
+                    return false;
                 }
             }
         }
@@ -74,7 +77,7 @@ namespace FuncOverlay.Core
             try
             {
                 Cts.Cancel();
-                WriteJsonLine(new { event_name = "overlay_closed", @event = "overlay_closed" });
+                WriteJsonLine(new { @event = "overlay_closed" });
 
                 lock (WriteLock)
                 {
@@ -114,7 +117,14 @@ namespace FuncOverlay.Core
         private readonly ConcurrentDictionary<string, RunningPluginProcess> _running =
             new ConcurrentDictionary<string, RunningPluginProcess>(StringComparer.OrdinalIgnoreCase);
 
+        private string? _cachedPythonExe;
+        private string? _cachedPythonPrefixArgs;
+        private bool _reportedMissingPython = false;
+
         public event Action<string, PluginRenderPayload>? PluginRenderReceived;
+        public event Action<string>? PluginHostNotice;
+
+        public string LastStartupIssue { get; private set; } = string.Empty;
 
         public PluginHostService(Dispatcher dispatcher, PluginIntentRouter intentRouter)
         {
@@ -136,7 +146,14 @@ namespace FuncOverlay.Core
                 string scriptPath = Path.Combine(folder.FolderPath, entryPoint);
                 if (!File.Exists(scriptPath)) continue;
 
-                if (_running.ContainsKey(folder.Metadata.id)) continue;
+                if (_running.TryGetValue(folder.Metadata.id, out RunningPluginProcess? existing))
+                {
+                    if (!existing.Process.HasExited) continue;
+                    if (_running.TryRemove(folder.Metadata.id, out RunningPluginProcess? dead))
+                    {
+                        dead.StopAndDispose();
+                    }
+                }
 
                 StartPythonPlugin(folder, scriptPath);
             }
@@ -145,8 +162,19 @@ namespace FuncOverlay.Core
         private void StartPythonPlugin(PluginFolderItem folder, string scriptPath)
         {
             Process? proc = TrySpawnPython(scriptPath, folder.FolderPath);
-            if (proc == null) return;
+            if (proc == null)
+            {
+                LastStartupIssue = "Python 3 not found on Windows. Install Python 3 from python.org to run Python plugins.";
+                LogHostDiagnostic($"[{folder.FolderName}] {LastStartupIssue}");
+                if (!_reportedMissingPython)
+                {
+                    _reportedMissingPython = true;
+                    _dispatcher.InvokeAsync(() => PluginHostNotice?.Invoke(LastStartupIssue));
+                }
+                return;
+            }
 
+            LastStartupIssue = string.Empty;
             var runner = new RunningPluginProcess(folder, proc);
             if (!_running.TryAdd(folder.Metadata.id, runner))
             {
@@ -154,8 +182,9 @@ namespace FuncOverlay.Core
                 return;
             }
 
-            // Start asynchronous stdout JSON line reader
+            // Start asynchronous stdout & stderr readers
             _ = Task.Run(() => ReadStdoutLoopAsync(runner), runner.Cts.Token);
+            _ = Task.Run(() => ReadStderrLoopAsync(runner), runner.Cts.Token);
 
             // Send initial open handshake with current plugin settings
             runner.WriteJsonLine(new
@@ -167,54 +196,187 @@ namespace FuncOverlay.Core
             });
         }
 
-        private static Process? TrySpawnPython(string scriptPath, string workingDir)
+        private Process? TrySpawnPython(string scriptPath, string workingDir)
         {
-            (string exe, string args)[] candidates =
+            if (string.IsNullOrEmpty(_cachedPythonExe))
             {
-                ("python", $"-u \"{scriptPath}\""),
-                ("py", $"-3 -u \"{scriptPath}\"")
-            };
+                ResolveWorkingPython(out _cachedPythonExe, out _cachedPythonPrefixArgs);
+            }
 
-            foreach (var (exe, args) in candidates)
+            if (!string.IsNullOrEmpty(_cachedPythonExe))
             {
-                try
-                {
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = exe,
-                        Arguments = args,
-                        WorkingDirectory = workingDir,
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardInput = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        StandardOutputEncoding = Encoding.UTF8,
-                        StandardErrorEncoding = Encoding.UTF8
-                    };
-                    psi.EnvironmentVariables["PYTHONUTF8"] = "1";
-                    psi.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
+                Process? p = LaunchPythonWithExecutable(_cachedPythonExe, _cachedPythonPrefixArgs ?? string.Empty, scriptPath, workingDir);
+                if (p != null) return p;
 
-                    Process? p = Process.Start(psi);
-                    if (p != null)
-                    {
-                        return p;
-                    }
-                }
-                catch
+                // Cached executable failed (e.g., removed), clear cache and re-probe once
+                _cachedPythonExe = null;
+                _cachedPythonPrefixArgs = null;
+                ResolveWorkingPython(out _cachedPythonExe, out _cachedPythonPrefixArgs);
+                if (!string.IsNullOrEmpty(_cachedPythonExe))
                 {
-                    // Try next candidate
+                    return LaunchPythonWithExecutable(_cachedPythonExe, _cachedPythonPrefixArgs ?? string.Empty, scriptPath, workingDir);
                 }
             }
 
             return null;
         }
 
+        private static Process? LaunchPythonWithExecutable(string exe, string prefixArgs, string scriptPath, string workingDir)
+        {
+            try
+            {
+                string fullArgs = string.IsNullOrEmpty(prefixArgs)
+                    ? $"-u \"{scriptPath}\""
+                    : $"{prefixArgs} -u \"{scriptPath}\"";
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = exe,
+                    Arguments = fullArgs,
+                    WorkingDirectory = workingDir,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardInput = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
+                };
+                psi.EnvironmentVariables["PYTHONUTF8"] = "1";
+                psi.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
+
+                return Process.Start(psi);
+            }
+            catch (Exception ex)
+            {
+                LogHostDiagnostic($"LaunchPythonWithExecutable failed ({exe}): {ex.Message}");
+                return null;
+            }
+        }
+
+        private static void ResolveWorkingPython(out string? resolvedExe, out string? resolvedPrefixArgs)
+        {
+            resolvedExe = null;
+            resolvedPrefixArgs = null;
+
+            var candidates = new List<(string exe, string prefix)>();
+
+            // 1. Windows Python Launcher (py.exe) - ignores Store stub and picks real Python 3
+            string windowsPy = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "py.exe");
+            if (File.Exists(windowsPy))
+            {
+                candidates.Add((windowsPy, "-3"));
+            }
+
+            // 2. Scan PATH entries while explicitly skipping the Microsoft Store WindowsApps stub
+            string pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+            foreach (string rawDir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string dir = rawDir.Trim().Trim('"');
+                if (string.IsNullOrEmpty(dir)) continue;
+                if (dir.IndexOf("WindowsApps", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+
+                foreach (string name in new[] { "python.exe", "python3.exe", "py.exe" })
+                {
+                    string candidatePath = Path.Combine(dir, name);
+                    if (File.Exists(candidatePath))
+                    {
+                        candidates.Add((candidatePath, name.Equals("py.exe", StringComparison.OrdinalIgnoreCase) ? "-3" : ""));
+                    }
+                }
+            }
+
+            // 3. Common Windows Python installation directories (even when not added to PATH)
+            var searchRoots = new List<string>
+            {
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Python"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Python"),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "C:\\"
+            };
+
+            foreach (string root in searchRoots.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    if (!Directory.Exists(root)) continue;
+                    var pythonDirs = Directory.GetDirectories(root, "Python3*")
+                        .OrderByDescending(d => d, StringComparer.OrdinalIgnoreCase);
+                    foreach (string pyDir in pythonDirs)
+                    {
+                        string exe = Path.Combine(pyDir, "python.exe");
+                        if (File.Exists(exe))
+                        {
+                            candidates.Add((exe, ""));
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            // 4. Generic fallback names
+            candidates.Add(("py", "-3"));
+            candidates.Add(("python3", ""));
+            candidates.Add(("python", ""));
+
+            // Verify first working Python 3 interpreter cleanly (rejects Store alias / broken shims)
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (exe, prefix) in candidates)
+            {
+                string key = $"{exe}|{prefix}";
+                if (!seen.Add(key)) continue;
+
+                if (ProbePythonWorks(exe, prefix))
+                {
+                    resolvedExe = exe;
+                    resolvedPrefixArgs = prefix;
+                    LogHostDiagnostic($"Resolved Python interpreter: {exe} {prefix}");
+                    return;
+                }
+            }
+        }
+
+        private static bool ProbePythonWorks(string exe, string prefix)
+        {
+            try
+            {
+                string args = string.IsNullOrEmpty(prefix)
+                    ? "-c \"import sys; print(sys.version_info[0])\""
+                    : $"{prefix} -c \"import sys; print(sys.version_info[0])\"";
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = exe,
+                    Arguments = args,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+
+                using Process? p = Process.Start(psi);
+                if (p == null) return false;
+
+                string output = p.StandardOutput.ReadToEnd().Trim();
+                if (!p.WaitForExit(1500))
+                {
+                    try { p.Kill(true); } catch { }
+                    return false;
+                }
+
+                return p.ExitCode == 0 && output.StartsWith("3");
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private async Task ReadStdoutLoopAsync(RunningPluginProcess runner)
         {
             try
             {
-                while (!runner.Cts.IsCancellationRequested && !runner.Process.HasExited)
+                while (!runner.Cts.IsCancellationRequested)
                 {
                     string? line = await runner.Process.StandardOutput.ReadLineAsync();
                     if (line == null) break;
@@ -225,8 +387,45 @@ namespace FuncOverlay.Core
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"PluginHost stdout loop ended ({runner.Folder.FolderName}): {ex.Message}");
+                LogHostDiagnostic($"[{runner.Folder.FolderName}] stdout loop ended: {ex.Message}");
             }
+        }
+
+        private async Task ReadStderrLoopAsync(RunningPluginProcess runner)
+        {
+            try
+            {
+                var errLines = new List<string>();
+                while (!runner.Cts.IsCancellationRequested)
+                {
+                    string? line = await runner.Process.StandardError.ReadLineAsync();
+                    if (line == null) break;
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+
+                    LogHostDiagnostic($"[{runner.Folder.FolderName} STDERR] {line}");
+                    if (errLines.Count < 4) errLines.Add(line);
+                }
+
+                if (!runner.Cts.IsCancellationRequested && errLines.Count > 0)
+                {
+                    LastStartupIssue = errLines[errLines.Count - 1];
+                    _dispatcher.InvokeAsync(() => PluginHostNotice?.Invoke($"{runner.Folder.Metadata.name}: {LastStartupIssue}"));
+                }
+            }
+            catch { }
+        }
+
+        private static void LogHostDiagnostic(string message)
+        {
+            try
+            {
+                Debug.WriteLine(message);
+                string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FuncOverlay");
+                Directory.CreateDirectory(dir);
+                string logPath = Path.Combine(dir, "plugin_host.log");
+                File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}{Environment.NewLine}");
+            }
+            catch { }
         }
 
         private void HandlePluginLine(PluginFolderItem caller, string line)
@@ -271,7 +470,7 @@ namespace FuncOverlay.Core
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Invalid JSON from plugin {caller.FolderName}: {ex.Message}");
+                LogHostDiagnostic($"Invalid JSON from plugin {caller.FolderName}: {ex.Message}");
             }
         }
 
@@ -279,19 +478,21 @@ namespace FuncOverlay.Core
         {
             if (_running.TryGetValue(pluginId, out RunningPluginProcess? runner))
             {
-                runner.WriteJsonLine(new
+                if (!runner.Process.HasExited)
                 {
-                    @event = "ui_action",
-                    action = actionId
-                });
-                return true;
+                    return runner.WriteJsonLine(new
+                    {
+                        @event = "ui_action",
+                        action = actionId
+                    });
+                }
             }
             return false;
         }
 
         public void NotifySettingsUpdated(PluginFolderItem folder)
         {
-            if (_running.TryGetValue(folder.Metadata.id, out RunningPluginProcess? runner))
+            if (_running.TryGetValue(folder.Metadata.id, out RunningPluginProcess? runner) && !runner.Process.HasExited)
             {
                 runner.WriteJsonLine(new
                 {

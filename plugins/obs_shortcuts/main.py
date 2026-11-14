@@ -33,12 +33,26 @@ STATUS_DOT_REPLAY_SAVING = "#111b4f"
 STATUS_DOT_STREAM = "#340f57"
 
 
+def _configure_stdio() -> None:
+    for stream in (sys.stdin, sys.stdout):
+        try:
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+_stdout_lock = threading.Lock()
+
+
 def send_host(payload: dict) -> None:
-    try:
-        sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
-        sys.stdout.flush()
-    except Exception:
-        pass
+    line = json.dumps(payload, ensure_ascii=False) + "\n"
+    with _stdout_lock:
+        try:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+        except Exception:
+            pass
 
 
 def send_intent(intent: str, data: dict | None = None) -> None:
@@ -47,6 +61,71 @@ def send_intent(intent: str, data: dict | None = None) -> None:
         "intent": intent,
         "data": data or {},
     })
+
+
+def load_local_metadata_settings() -> dict:
+    """Load initial settings directly from local metadata.json next to main.py."""
+    merged: dict = {}
+    try:
+        meta_path = Path(__file__).with_name("metadata.json")
+        if not meta_path.exists():
+            return merged
+        meta = json.loads(meta_path.read_text(encoding="utf-8-sig"))
+        if not isinstance(meta, dict):
+            return merged
+
+        schema = meta.get("settingsSchema") or []
+        raw_settings = meta.get("settings") or {}
+
+        for item in schema:
+            if not isinstance(item, dict):
+                continue
+            key = item.get("key")
+            if not key:
+                continue
+            default_val = item.get("defaultValue")
+            schema_val = item.get("value", default_val)
+            dict_val = raw_settings.get(key) if isinstance(raw_settings, dict) else None
+
+            if dict_val is not None and dict_val != default_val:
+                merged[key] = dict_val
+            elif schema_val is not None and schema_val != default_val:
+                merged[key] = schema_val
+            elif dict_val is not None:
+                merged[key] = dict_val
+            else:
+                merged[key] = schema_val
+
+        if isinstance(raw_settings, dict):
+            for k, v in raw_settings.items():
+                if k not in merged:
+                    merged[k] = v
+    except Exception:
+        pass
+    return merged
+
+
+def normalize_ws_endpoint(raw_host: str, raw_port) -> tuple[str, int]:
+    host = str(raw_host or "127.0.0.1").strip()
+    for prefix in ("ws://", "wss://", "http://", "https://"):
+        if host.lower().startswith(prefix):
+            host = host[len(prefix):]
+    host = host.split("/", 1)[0].strip()
+
+    try:
+        port = int(str(raw_port or 4455).strip())
+    except Exception:
+        port = 4455
+
+    if ":" in host and not host.startswith("["):
+        parts = host.rsplit(":", 1)
+        if parts[1].isdigit():
+            host = parts[0].strip()
+            port = int(parts[1])
+
+    if not host:
+        host = "127.0.0.1"
+    return host, port
 
 
 def format_duration(seconds: int) -> str:
@@ -104,7 +183,6 @@ def read_obs_replay_buffer_seconds(fallback_sec: int = 30) -> int:
             prof_cfg = configparser.ConfigParser(interpolation=None)
             prof_cfg.read(basic_ini, encoding="utf-8-sig")
 
-            # Check Advanced or Simple output mode
             mode = "Simple"
             if prof_cfg.has_option("Output", "Mode"):
                 mode = prof_cfg.get("Output", "Mode").strip()
@@ -188,12 +266,32 @@ class ObsWebSocketV5Client:
         self._send_lock = threading.Lock()
         self._req_counter = 0
         self.connected = False
+        self.last_error: str | None = None
 
     def connect(self, timeout: float = 1.5) -> bool:
         self.close()
+        self.last_error = None
+
+        hosts_to_try = [self.host]
+        if self.host.lower() == "localhost":
+            hosts_to_try.append("127.0.0.1")
+
+        sock = None
+        last_exc = None
+        for target_host in hosts_to_try:
+            try:
+                sock = socket.create_connection((target_host, self.port), timeout=timeout)
+                break
+            except Exception as ex:
+                last_exc = ex
+                sock = None
+
+        if sock is None:
+            self.last_error = f"Cannot reach OBS WebSocket at {self.host}:{self.port} ({last_exc})"
+            return False
+
         try:
-            sock = socket.create_connection((self.host, self.port), timeout=timeout)
-            sock.settimeout(2.0)
+            sock.settimeout(1.5)
 
             ws_key = base64.b64encode(os.urandom(16)).decode("ascii")
             handshake = (
@@ -212,11 +310,13 @@ class ObsWebSocketV5Client:
                 chunk = sock.recv(4096)
                 if not chunk:
                     sock.close()
+                    self.last_error = "OBS WebSocket closed during HTTP upgrade"
                     return False
                 resp += chunk
 
             if b"101 " not in resp.split(b"\r\n", 1)[0]:
                 sock.close()
+                self.last_error = "OBS WebSocket rejected HTTP upgrade"
                 return False
 
             self._sock = sock
@@ -224,6 +324,7 @@ class ObsWebSocketV5Client:
             # Wait for Hello (op 0)
             hello = self._recv_json()
             if not hello or hello.get("op") != 0:
+                self.last_error = "Did not receive OBS WebSocket Hello (op 0)"
                 self.close()
                 return False
 
@@ -247,12 +348,16 @@ class ObsWebSocketV5Client:
             self._send_json({"op": 1, "d": identify_data})
             identified = self._recv_json()
             if not identified or identified.get("op") != 2:
+                self.last_error = "auth_failed" if auth_info else "OBS WebSocket Identify rejected"
                 self.close()
                 return False
 
+            # Shorter timeout during active loop so 1s recording timer updates smoothly
+            self._sock.settimeout(0.45)
             self.connected = True
             return True
-        except Exception:
+        except Exception as ex:
+            self.last_error = str(ex)
             self.close()
             return False
 
@@ -373,8 +478,11 @@ class ObsWebSocketV5Client:
 class ObsShortcutsPlugin:
     def __init__(self):
         self.running = True
-        self.settings: dict = {}
+        self.settings: dict = load_local_metadata_settings()
         self.obs_client: ObsWebSocketV5Client | None = None
+        self._ws_config: tuple[str, int, str] = self._extract_ws_config(self.settings)
+        self._force_reconnect = False
+        self._auth_toast_sent = False
 
         self.is_recording = False
         self.record_seconds = 0
@@ -385,10 +493,35 @@ class ObsShortcutsPlugin:
         self.stream_seconds = 0
 
         self._state_lock = threading.Lock()
+        self.apply_settings(self.settings)
+
+    @staticmethod
+    def _extract_ws_config(settings: dict) -> tuple[str, int, str]:
+        host, port = normalize_ws_endpoint(
+            settings.get("obs_ws_host", "127.0.0.1"),
+            settings.get("obs_ws_port", 4455),
+        )
+        password = str(settings.get("obs_ws_password") or "")
+        return host, port, password
 
     def apply_settings(self, settings: dict) -> None:
-        self.settings = settings or {}
-        fallback = int(self.settings.get("replay_buffer_fallback_sec", 30) or 30)
+        if settings:
+            merged = dict(self.settings)
+            merged.update(settings)
+            self.settings = merged
+
+        new_ws = self._extract_ws_config(self.settings)
+        if new_ws != self._ws_config:
+            self._ws_config = new_ws
+            self._force_reconnect = True
+            self._auth_toast_sent = False
+            if self.obs_client is not None:
+                self.obs_client.close()
+
+        try:
+            fallback = int(self.settings.get("replay_buffer_fallback_sec", 30) or 30)
+        except Exception:
+            fallback = 30
         self.replay_duration_sec = read_obs_replay_buffer_seconds(fallback)
 
     def build_render_payload(self) -> dict:
@@ -503,43 +636,52 @@ class ObsShortcutsPlugin:
         last_reconnect = 0.0
 
         while self.running:
-            now = time.monotonic()
-            host = str(self.settings.get("obs_ws_host") or "127.0.0.1")
-            port = int(self.settings.get("obs_ws_port") or 4455)
-            password = str(self.settings.get("obs_ws_password") or "")
+            try:
+                now = time.monotonic()
+                host, port, password = self._ws_config
 
-            if self.obs_client is None or not self.obs_client.connected:
-                if now - last_reconnect >= 2.5:
-                    last_reconnect = now
-                    client = ObsWebSocketV5Client(host, port, password)
-                    if client.connect(timeout=0.8):
-                        self.obs_client = client
-                        client.send_request("GetRecordStatus")
-                        client.send_request("GetReplayBufferStatus")
-                        client.send_request("GetStreamStatus")
-                time.sleep(0.25)
-            else:
-                msg = self.obs_client.recv_message()
-                if msg and not msg.get("_timeout"):
-                    self._process_obs_message(msg)
+                if self.obs_client is None or not self.obs_client.connected:
+                    if self._force_reconnect or (now - last_reconnect >= 1.8):
+                        self._force_reconnect = False
+                        last_reconnect = now
+                        client = ObsWebSocketV5Client(host, port, password)
+                        if client.connect(timeout=1.0):
+                            self.obs_client = client
+                            self._auth_toast_sent = False
+                            client.send_request("GetRecordStatus")
+                            client.send_request("GetReplayBufferStatus")
+                            client.send_request("GetStreamStatus")
+                        elif client.last_error == "auth_failed" and not self._auth_toast_sent:
+                            self._auth_toast_sent = True
+                            send_intent("app.toast", {
+                                "message": "OBS WebSocket authentication failed — check password in obs shortcuts settings.",
+                                "durationMs": 4000,
+                            })
+                    time.sleep(0.2)
+                else:
+                    msg = self.obs_client.recv_message()
+                    if msg and not msg.get("_timeout"):
+                        self._process_obs_message(msg)
 
-            # 1-second real-time timer update while FuncOverlay is open
-            now = time.monotonic()
-            if now - last_tick >= 1.0:
-                elapsed = int(now - last_tick)
-                last_tick = now
-                changed = False
-                with self._state_lock:
-                    if self.is_recording:
-                        self.record_seconds += elapsed
-                        changed = True
-                    if self.is_streaming:
-                        self.stream_seconds += elapsed
-                    if self.replay_saving_until > 0 and now >= self.replay_saving_until:
-                        self.replay_saving_until = 0.0
-                        changed = True
-                if changed:
-                    self.emit_render()
+                # 1-second real-time timer update while FuncOverlay is open
+                now = time.monotonic()
+                if now - last_tick >= 1.0:
+                    elapsed = int(now - last_tick)
+                    last_tick = now
+                    changed = False
+                    with self._state_lock:
+                        if self.is_recording:
+                            self.record_seconds += elapsed
+                            changed = True
+                        if self.is_streaming:
+                            self.stream_seconds += elapsed
+                        if self.replay_saving_until > 0 and now >= self.replay_saving_until:
+                            self.replay_saving_until = 0.0
+                            changed = True
+                    if changed:
+                        self.emit_render()
+            except Exception:
+                time.sleep(0.3)
 
     def _process_obs_message(self, msg: dict) -> None:
         op = msg.get("op")
@@ -586,13 +728,20 @@ class ObsShortcutsPlugin:
             self.emit_render()
 
     def run(self) -> None:
-        self.apply_settings({})
+        _configure_stdio()
         self.emit_render()
 
         worker = threading.Thread(target=self.obs_worker_loop, daemon=True)
         worker.start()
 
-        for raw_line in sys.stdin:
+        while self.running:
+            try:
+                raw_line = sys.stdin.readline()
+            except Exception:
+                break
+            if not raw_line:
+                break
+
             line = raw_line.strip()
             if not line:
                 continue

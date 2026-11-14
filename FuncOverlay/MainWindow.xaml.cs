@@ -58,6 +58,7 @@ namespace FuncOverlay
             _intentRouter = new PluginIntentRouter(_pluginManager, this);
             _pluginHostService = new PluginHostService(this.Dispatcher, _intentRouter);
             _pluginHostService.PluginRenderReceived += OnPluginRenderReceived;
+            _pluginHostService.PluginHostNotice += msg => ShowOverlayToast(msg, 4500);
 
             _overlayToastTimer = new DispatcherTimer();
             _overlayToastTimer.Tick += (s, e) =>
@@ -625,7 +626,7 @@ namespace FuncOverlay
             buttonBox.MouseLeftButtonDown += (s, e) =>
             {
                 buttonBox.Background = pressedBg;
-                _pluginHostService.SendAction(pluginId, btn.id);
+                DispatchPluginAction(pluginId, btn.id);
                 e.Handled = true;
             };
             buttonBox.MouseLeftButtonUp += (s, e) =>
@@ -639,7 +640,7 @@ namespace FuncOverlay
                 if (!string.IsNullOrEmpty(btn.secondaryAction))
                 {
                     buttonBox.Background = pressedBg;
-                    _pluginHostService.SendAction(pluginId, btn.secondaryAction);
+                    DispatchPluginAction(pluginId, btn.secondaryAction);
                 }
                 e.Handled = true;
             };
@@ -650,6 +651,26 @@ namespace FuncOverlay
             };
 
             return buttonBox;
+        }
+
+        private void DispatchPluginAction(string pluginId, string actionId)
+        {
+            if (_pluginHostService.SendAction(pluginId, actionId))
+            {
+                return;
+            }
+
+            // Try restarting plugin host once if it wasn't running yet
+            _pluginHostService.StartAllForOpenOverlay(_pluginManager.LoadedPluginFolders);
+            if (_pluginHostService.SendAction(pluginId, actionId))
+            {
+                return;
+            }
+
+            string reason = !string.IsNullOrWhiteSpace(_pluginHostService.LastStartupIssue)
+                ? _pluginHostService.LastStartupIssue
+                : "Plugin process is not running. Check %LocalAppData%\\FuncOverlay\\plugin_host.log";
+            ShowOverlayToast(reason, 4500);
         }
 
         private static SolidColorBrush ParseHexBrush(string? hex, MediaColor fallback)

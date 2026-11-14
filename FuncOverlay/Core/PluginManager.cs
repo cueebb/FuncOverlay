@@ -336,10 +336,25 @@ namespace FuncOverlay.Core
             {
                 foreach (var def in meta.settingsSchema)
                 {
-                    if (!string.IsNullOrEmpty(def.key))
+                    if (string.IsNullOrEmpty(def.key)) continue;
+
+                    object? chosen = def.value ?? def.defaultValue;
+                    if (meta.settings != null && meta.settings.TryGetValue(def.key, out object? dictVal) && dictVal != null)
                     {
-                        merged[def.key] = def.value ?? def.defaultValue;
+                        string defDefaultStr = def.defaultValue?.ToString() ?? string.Empty;
+                        string schemaValStr = def.value?.ToString() ?? string.Empty;
+                        string dictValStr = dictVal.ToString() ?? string.Empty;
+
+                        bool dictChanged = !string.Equals(dictValStr, defDefaultStr, StringComparison.Ordinal);
+                        bool schemaChanged = !string.Equals(schemaValStr, defDefaultStr, StringComparison.Ordinal);
+
+                        if (dictChanged || !schemaChanged)
+                        {
+                            chosen = dictVal;
+                        }
                     }
+
+                    merged[def.key] = chosen;
                 }
             }
 
@@ -347,7 +362,10 @@ namespace FuncOverlay.Core
             {
                 foreach (var kv in meta.settings)
                 {
-                    merged[kv.Key] = kv.Value;
+                    if (!merged.ContainsKey(kv.Key))
+                    {
+                        merged[kv.Key] = kv.Value;
+                    }
                 }
             }
 

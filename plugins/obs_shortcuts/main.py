@@ -204,55 +204,13 @@ def read_obs_replay_buffer_seconds(fallback_sec: int = 30) -> int:
 
 
 def focus_or_launch_obs(obs_exe_path: str) -> None:
-    """Restore an existing OBS Studio window or launch obs64.exe."""
-    restored = False
-    if os.name == "nt":
-        try:
-            user32 = ctypes.windll.user32
-            EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-            matched_hwnd = []
-
-            def callback(hwnd, _lparam):
-                if not user32.IsWindowVisible(hwnd):
-                    return True
-                length = user32.GetWindowTextLengthW(hwnd)
-                if length <= 0:
-                    return True
-                buf = ctypes.create_unicode_buffer(length + 1)
-                user32.GetWindowTextW(hwnd, buf, length + 1)
-                title = buf.value
-                if title.startswith("OBS ") or "OBS Studio" in title:
-                    matched_hwnd.append(hwnd)
-                    return False
-                return True
-
-            user32.EnumWindows(EnumWindowsProc(callback), 0)
-            if matched_hwnd:
-                hwnd = matched_hwnd[0]
-                SW_RESTORE = 9
-                if user32.IsIconic(hwnd):
-                    user32.ShowWindow(hwnd, SW_RESTORE)
-                user32.SetForegroundWindow(hwnd)
-                restored = True
-        except Exception:
-            restored = False
-
-    if not restored:
-        exe = Path(obs_exe_path)
-        if exe.exists():
-            try:
-                subprocess.Popen(
-                    [str(exe)],
-                    cwd=str(exe.parent),
-                    creationflags=getattr(subprocess, "DETACHED_PROCESS", 0),
-                )
-            except Exception:
-                send_intent("system.launch_app", {"path": str(exe)})
-        else:
-            send_intent("system.launch_app", {"path": obs_exe_path})
-
-    # Intent to close FuncOverlay overlay right after opening/restoring OBS
-    send_intent("overlay.close")
+    """Restore existing OBS (taskbar or system tray) or launch obs64.exe via native host intent."""
+    send_intent("system.focus_or_launch_app", {
+        "path": obs_exe_path,
+        "windowTitleHints": ["OBS ", "OBS Studio"],
+        "processNames": ["obs64", "obs32", "obs"],
+        "closeOverlay": True,
+    })
 
 
 class ObsWebSocketV5Client:

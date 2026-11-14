@@ -79,6 +79,8 @@ export const en = {
     subtitle: "Configure global overlay appearance, trigger hotkey, and manage plugins",
     general: {
       sectionTitle: "General",
+      runOnStartupLabel: "Run on startup",
+      runOnStartupDesc: "Automatically launch FuncOverlay in the background when Windows starts.",
       transitionLabel: "Transition",
       transitionUnit: "ms",
       transitionDesc: "Duration of the screen tint animation in milliseconds (Default: 250ms).",
@@ -117,6 +119,7 @@ export const en = {
       copyBtn: "Copy C# Code",
     },
     saveChanges: "Save Settings",
+    minimize: "Minimize",
     close: "Close",
   },
 

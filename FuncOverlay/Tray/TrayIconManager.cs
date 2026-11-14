@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
+using System.Windows.Threading;
 using System.Diagnostics;
 using System.IO;
 
@@ -9,16 +10,23 @@ namespace FuncOverlay.Tray
     public class TrayIconManager : IDisposable
     {
         private NotifyIcon? _notifyIcon;
+        private TrayMenuWindow? _trayMenuWindow;
 
-        public void Initialize(Action toggle, Action openSettings, Action restart)
+        public void Initialize(
+            Action toggle,
+            Action openSettings,
+            Action restart,
+            Func<bool> isOverlayVisible,
+            Func<string> getHotkeyDisplay)
         {
-            ContextMenuStrip menu = new ContextMenuStrip();
-            menu.Items.Add("Toggle Overlay (Alt+Space)", null, (s, e) => toggle());
-            menu.Items.Add("Settings...", null, (s, e) => openSettings());
-            menu.Items.Add("Open 'plugins' Folder", null, (s, e) => OpenPluginsFolder());
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Restart Application", null, (s, e) => restart());
-            menu.Items.Add("Exit FuncOverlay", null, (s, e) => System.Windows.Application.Current?.Dispatcher.Invoke(() => System.Windows.Application.Current.Shutdown()));
+            // Custom black & white WPF Tray popup window (no default Windows ContextMenuStrip)
+            _trayMenuWindow = new TrayMenuWindow(
+                toggleAction: toggle,
+                openSettingsAction: openSettings,
+                openPluginsAction: OpenPluginsFolder,
+                restartAction: restart,
+                exitAction: () => System.Windows.Application.Current?.Dispatcher.Invoke(() => System.Windows.Application.Current.Shutdown())
+            );
 
             // Load custom application icon if present
             Icon trayIcon = SystemIcons.Application;
@@ -39,11 +47,27 @@ namespace FuncOverlay.Tray
             {
                 Icon = trayIcon,
                 Text = "FuncOverlay",
-                ContextMenuStrip = menu,
                 Visible = true
             };
 
-            _notifyIcon.DoubleClick += (s, e) => toggle();
+            // Both left-click and right-click open the custom monochrome FuncOverlay tray popup
+            _notifyIcon.MouseUp += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Right || e.Button == MouseButtons.Left)
+                {
+                    System.Windows.Application.Current?.Dispatcher.BeginInvoke(
+                        DispatcherPriority.Input,
+                        new Action(() =>
+                        {
+                            _trayMenuWindow?.ToggleMenu(isOverlayVisible(), getHotkeyDisplay());
+                        }));
+                }
+            };
+        }
+
+        public void ShowTrayMenuAtCursor(bool isOverlayVisible, string hotkeyDisplay)
+        {
+            _trayMenuWindow?.ShowAtCursor(isOverlayVisible, hotkeyDisplay);
         }
 
         private void OpenPluginsFolder()
@@ -58,6 +82,11 @@ namespace FuncOverlay.Tray
 
         public void Dispose()
         {
+            if (_trayMenuWindow != null)
+            {
+                _trayMenuWindow.Close();
+                _trayMenuWindow = null;
+            }
             if (_notifyIcon != null)
             {
                 _notifyIcon.Visible = false;

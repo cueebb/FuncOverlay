@@ -43,7 +43,7 @@ namespace FuncOverlay.Core
         public PluginSize size { get; set; } = new PluginSize();
         public bool enabled { get; set; } = true;
         public List<PluginSettingDefinition>? settingsSchema { get; set; }
-        public Dictionary<string, object>? settings { get; set; }
+        public Dictionary<string, object?>? settings { get; set; }
     }
 
     public class PluginFolderItem
@@ -89,7 +89,7 @@ namespace FuncOverlay.Core
                             PropertyNameCaseInsensitive = true
                         });
 
-                        if (meta != null && meta.enabled)
+                        if (meta != null)
                         {
                             string folderName = Path.GetFileName(folderPath);
                             LoadedPluginFolders.Add(new PluginFolderItem
@@ -98,7 +98,11 @@ namespace FuncOverlay.Core
                                 FolderPath = folderPath,
                                 Metadata = meta
                             });
-                            LoadedPlugins.Add(meta);
+
+                            if (meta.enabled)
+                            {
+                                LoadedPlugins.Add(meta);
+                            }
                         }
                     }
                     catch (Exception ex)
@@ -109,13 +113,93 @@ namespace FuncOverlay.Core
             }
         }
 
+        public bool SetPluginEnabled(string folderName, bool enabled)
+        {
+            try
+            {
+                string metadataPath = Path.Combine(PluginsDirectory, folderName, "metadata.json");
+                if (File.Exists(metadataPath))
+                {
+                    string json = File.ReadAllText(metadataPath);
+                    var meta = JsonSerializer.Deserialize<PluginMetadata>(json, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+
+                    if (meta != null)
+                    {
+                        meta.enabled = enabled;
+                        string updatedJson = JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true });
+                        File.WriteAllText(metadataPath, updatedJson);
+                        LoadAllPlugins();
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to update plugin enabled state: {ex.Message}");
+            }
+            return false;
+        }
+
+        public bool InstallFromPath(string sourcePath)
+        {
+            if (Directory.Exists(sourcePath))
+            {
+                return CopyPluginDirectory(sourcePath);
+            }
+            if (File.Exists(sourcePath) && Path.GetExtension(sourcePath).Equals(".zip", StringComparison.OrdinalIgnoreCase))
+            {
+                return ExtractPluginArchive(sourcePath);
+            }
+            return false;
+        }
+
+        public bool CopyPluginDirectory(string sourceDir)
+        {
+            try
+            {
+                string folderName = new DirectoryInfo(sourceDir).Name;
+                string targetDir = Path.Combine(PluginsDirectory, folderName);
+                if (Directory.Exists(targetDir))
+                {
+                    targetDir = Path.Combine(PluginsDirectory, $"{folderName}_{DateTime.Now:yyyyMMddHHmmss}");
+                }
+
+                CopyDirectoryRecursive(sourceDir, targetDir);
+                LoadAllPlugins();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to copy plugin directory: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static void CopyDirectoryRecursive(string sourceDir, string destinationDir)
+        {
+            Directory.CreateDirectory(destinationDir);
+            foreach (string file in Directory.GetFiles(sourceDir))
+            {
+                string destFile = Path.Combine(destinationDir, Path.GetFileName(file));
+                File.Copy(file, destFile, overwrite: true);
+            }
+            foreach (string subDir in Directory.GetDirectories(sourceDir))
+            {
+                string destSubDir = Path.Combine(destinationDir, Path.GetFileName(subDir));
+                CopyDirectoryRecursive(subDir, destSubDir);
+            }
+        }
+
         public bool ExtractPluginArchive(string zipFilePath)
         {
             try
             {
                 string fileNameWithoutExt = Path.GetFileNameWithoutExtension(zipFilePath);
                 string targetDir = Path.Combine(PluginsDirectory, fileNameWithoutExt);
-                
+
                 if (Directory.Exists(targetDir))
                 {
                     targetDir = Path.Combine(PluginsDirectory, $"{fileNameWithoutExt}_{DateTime.Now:yyyyMMddHHmmss}");
@@ -152,6 +236,42 @@ namespace FuncOverlay.Core
             return false;
         }
 
+        public bool UpdatePluginPosition(string pluginId, int x, int y)
+        {
+            try
+            {
+                foreach (var folder in LoadedPluginFolders)
+                {
+                    if (folder.Metadata.id == pluginId)
+                    {
+                        string metadataPath = Path.Combine(folder.FolderPath, "metadata.json");
+                        if (!File.Exists(metadataPath)) return false;
+
+                        string json = File.ReadAllText(metadataPath);
+                        var meta = JsonSerializer.Deserialize<PluginMetadata>(json, new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        });
+                        if (meta != null)
+                        {
+                            meta.position.x = x;
+                            meta.position.y = y;
+                            string updatedJson = JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true });
+                            File.WriteAllText(metadataPath, updatedJson);
+                            folder.Metadata.position.x = x;
+                            folder.Metadata.position.y = y;
+                            return true;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to update plugin position: {ex.Message}");
+            }
+            return false;
+        }
+
         public bool UpdatePluginSetting(string folderName, string settingKey, object? newValue)
         {
             try
@@ -160,10 +280,13 @@ namespace FuncOverlay.Core
                 if (File.Exists(metadataPath))
                 {
                     string json = File.ReadAllText(metadataPath);
-                    var meta = JsonSerializer.Deserialize<PluginMetadata>(json);
+                    var meta = JsonSerializer.Deserialize<PluginMetadata>(json, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
                     if (meta != null)
                     {
-                        meta.settings ??= new Dictionary<string, object>();
+                        meta.settings ??= new Dictionary<string, object?>();
                         meta.settings[settingKey] = newValue;
 
                         if (meta.settingsSchema != null)

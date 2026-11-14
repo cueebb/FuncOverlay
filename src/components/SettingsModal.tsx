@@ -4,6 +4,7 @@ import { t } from '../i18n';
 import { PluginFolder, PluginSettingDefinition } from '../types/plugin';
 import {
   X,
+  Minus,
   FolderOpen,
   RotateCw,
   Upload,
@@ -11,15 +12,17 @@ import {
   Sliders,
   Keyboard,
   Package,
-  Check,
-  CheckCircle2,
   Folder,
 } from 'lucide-react';
 
 export const SettingsModal: React.FC = () => {
   const {
     isSettingsOpen,
+    isSettingsMinimized,
+    minimizeSettings,
     closeSettings,
+    runOnStartup,
+    setRunOnStartup,
     fadeDurationMs,
     setFadeDurationMs,
     overlayOpacity,
@@ -30,6 +33,7 @@ export const SettingsModal: React.FC = () => {
     openExplorer,
     restartApp,
     installPluginArchive,
+    togglePluginEnabled,
     deletePlugin,
     updatePluginSetting,
   } = useApp();
@@ -38,7 +42,7 @@ export const SettingsModal: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [recordedCombo, setRecordedCombo] = useState<string>('');
 
-  if (!isSettingsOpen) return null;
+  if (!isSettingsOpen || isSettingsMinimized) return null;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     e.preventDefault();
@@ -83,7 +87,7 @@ export const SettingsModal: React.FC = () => {
       {/* Design styled identically to 'How to Install Plugins' Window */}
       <div className="w-[660px] max-w-[94vw] max-h-[88vh] rounded-2xl bg-zinc-950/95 border border-zinc-800 p-8 text-zinc-100 shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
         
-        {/* Header */}
+        {/* Header with ONLY Minimize (_) and Close (X) in upper-right corner */}
         <div className="flex items-start justify-between pb-4 mb-6 border-b border-zinc-800 shrink-0">
           <div>
             <h2 className="text-xl font-bold tracking-tight text-white font-sans">
@@ -93,17 +97,26 @@ export const SettingsModal: React.FC = () => {
               {t('settings.subtitle')}
             </p>
           </div>
-          <button
-            onClick={closeSettings}
-            className="p-1 rounded-lg hover:bg-zinc-900 text-zinc-400 hover:text-white transition-colors cursor-pointer"
-            title={t('settings.close')}
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={minimizeSettings}
+              className="w-8 h-8 rounded-lg hover:bg-zinc-900 text-zinc-400 hover:text-white transition-colors cursor-pointer flex items-center justify-center"
+              title={t('settings.minimize')}
+            >
+              <Minus className="w-4 h-4" />
+            </button>
+            <button
+              onClick={closeSettings}
+              className="w-8 h-8 rounded-lg hover:bg-zinc-900 text-zinc-400 hover:text-white transition-colors cursor-pointer flex items-center justify-center"
+              title={t('settings.close')}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Scrollable Settings Content */}
-        <div className="flex-1 overflow-y-auto space-y-6 pr-1">
+        <div className="flex-1 overflow-y-auto space-y-6 pr-2">
           
           {/* ================================================================= */}
           {/* 1. GENERAL SECTION                                               */}
@@ -116,8 +129,36 @@ export const SettingsModal: React.FC = () => {
               </h3>
             </div>
 
-            {/* Field 1: Transition (time, in ms) */}
-            <div className="space-y-1.5">
+            {/* First Setting: Run on startup (Boolean) */}
+            <div className="flex items-center justify-between gap-4 pb-1">
+              <div className="space-y-0.5">
+                <label className="font-semibold text-white text-xs block">
+                  {t('settings.general.runOnStartupLabel')}
+                </label>
+                <p className="text-[11px] text-zinc-400 leading-normal">
+                  {t('settings.general.runOnStartupDesc')}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRunOnStartup(!runOnStartup)}
+                className={`w-10 h-5 flex items-center rounded-full p-0.5 transition-colors cursor-pointer border shrink-0 ${
+                  runOnStartup
+                    ? 'bg-white border-white justify-end'
+                    : 'bg-zinc-950 border-zinc-700 justify-start'
+                }`}
+                aria-label={t('settings.general.runOnStartupLabel')}
+              >
+                <span
+                  className={`w-4 h-4 rounded-full transition-transform ${
+                    runOnStartup ? 'bg-black' : 'bg-zinc-400'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Field 2: Transition (time, in ms) */}
+            <div className="space-y-1.5 pt-3 border-t border-zinc-800/70">
               <div className="flex justify-between items-center text-xs">
                 <label className="font-semibold text-white">
                   {t('settings.general.transitionLabel')} ({t('settings.general.transitionUnit')})
@@ -320,6 +361,7 @@ export const SettingsModal: React.FC = () => {
                     <InstalledPluginCard
                       key={pf.metadata.id}
                       pluginFolder={pf}
+                      onToggleEnabled={() => togglePluginEnabled(pf.metadata.id)}
                       onDelete={() => deletePlugin(pf.metadata.id)}
                       onOpenFolder={() => openExplorer(pf.folderName)}
                       onUpdateSetting={(key, val) => updatePluginSetting(pf.metadata.id, key, val)}
@@ -333,20 +375,6 @@ export const SettingsModal: React.FC = () => {
 
         </div>
 
-        {/* Footer */}
-        <div className="pt-4 mt-4 border-t border-zinc-800 flex items-center justify-between shrink-0">
-          <span className="text-[11px] font-mono text-zinc-500">
-            FuncOverlay Configuration Engine
-          </span>
-          {/* Secondary Button: Black with white outline */}
-          <button
-            onClick={closeSettings}
-            className="bg-black text-white font-medium border border-white hover:bg-zinc-900 transition-colors cursor-pointer rounded-lg px-5 py-2 text-xs active:scale-95"
-          >
-            {t('settings.close')}
-          </button>
-        </div>
-
       </div>
     </div>
   );
@@ -357,6 +385,7 @@ export const SettingsModal: React.FC = () => {
 /* ========================================================================= */
 interface InstalledPluginCardProps {
   pluginFolder: PluginFolder;
+  onToggleEnabled: () => void;
   onDelete: () => void;
   onOpenFolder: () => void;
   onUpdateSetting: (settingKey: string, newValue: any) => void;
@@ -364,16 +393,17 @@ interface InstalledPluginCardProps {
 
 const InstalledPluginCard: React.FC<InstalledPluginCardProps> = ({
   pluginFolder,
+  onToggleEnabled,
   onDelete,
   onOpenFolder,
   onUpdateSetting,
 }) => {
-  const { metadata, folderName } = pluginFolder;
-  const { name, description, entryPoint, language, settingsSchema, settings } = metadata;
+  const { metadata } = pluginFolder;
+  const { name, description, entryPoint, enabled, settingsSchema, settings } = metadata;
 
   return (
     <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-3.5 hover:border-zinc-700 transition-colors">
-      {/* Top Row: Name & Description on the left, Buttons on the right */}
+      {/* Top Row: Name & Description on the left, Enabled/Disabled + Buttons stacked on the right */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 space-y-1">
           {/* Name: main text, white color */}
@@ -391,27 +421,53 @@ const InstalledPluginCard: React.FC<InstalledPluginCardProps> = ({
           </p>
         </div>
 
-        {/* Secondary Buttons on the right: Black with white outline */}
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Open Plugin Folder (Secondary) */}
-          <button
-            onClick={onOpenFolder}
-            className="bg-black text-white font-medium border border-white hover:bg-zinc-900 transition-colors cursor-pointer rounded-lg px-3 py-1.5 text-xs flex items-center gap-1.5 active:scale-95"
-            title="Open Folder"
-          >
-            <Folder className="w-3 h-3" />
-            <span>{t('settings.plugins.openPluginFolderBtn')}</span>
-          </button>
+        {/* Right Controls: Enabled/Disabled toggle ABOVE Open Folder & Delete Plugin buttons */}
+        <div className="flex flex-col items-end gap-2 shrink-0">
+          {/* Enabled / Disabled Toggle Row */}
+          <div className="flex items-center gap-2">
+            <span className={`text-[11px] font-medium ${enabled ? 'text-white' : 'text-zinc-400'}`}>
+              {enabled ? t('common.enabled') : t('common.disabled')}
+            </span>
+            <button
+              type="button"
+              onClick={onToggleEnabled}
+              className={`w-10 h-5 flex items-center rounded-full p-0.5 transition-colors cursor-pointer border ${
+                enabled
+                  ? 'bg-white border-white justify-end'
+                  : 'bg-zinc-900 border-zinc-700 justify-start'
+              }`}
+              title={enabled ? t('common.enabled') : t('common.disabled')}
+            >
+              <span
+                className={`w-4 h-4 rounded-full transition-transform ${
+                  enabled ? 'bg-black' : 'bg-zinc-400'
+                }`}
+              />
+            </button>
+          </div>
 
-          {/* Delete Plugin (Secondary) */}
-          <button
-            onClick={onDelete}
-            className="bg-black text-white font-medium border border-white hover:bg-zinc-900 transition-colors cursor-pointer rounded-lg px-3 py-1.5 text-xs flex items-center gap-1.5 active:scale-95"
-            title="Delete Plugin"
-          >
-            <Trash2 className="w-3 h-3" />
-            <span>{t('settings.plugins.deletePluginBtn')}</span>
-          </button>
+          {/* Secondary Buttons: Black with white outline */}
+          <div className="flex items-center gap-2">
+            {/* Open Plugin Folder (Secondary) */}
+            <button
+              onClick={onOpenFolder}
+              className="bg-black text-white font-medium border border-white hover:bg-zinc-900 transition-colors cursor-pointer rounded-lg px-3 py-1.5 text-xs flex items-center gap-1.5 active:scale-95"
+              title="Open Folder"
+            >
+              <Folder className="w-3 h-3" />
+              <span>{t('settings.plugins.openPluginFolderBtn')}</span>
+            </button>
+
+            {/* Delete Plugin (Secondary) */}
+            <button
+              onClick={onDelete}
+              className="bg-black text-white font-medium border border-white hover:bg-zinc-900 transition-colors cursor-pointer rounded-lg px-3 py-1.5 text-xs flex items-center gap-1.5 active:scale-95"
+              title="Delete Plugin"
+            >
+              <Trash2 className="w-3 h-3" />
+              <span>{t('settings.plugins.deletePluginBtn')}</span>
+            </button>
+          </div>
         </div>
       </div>
 

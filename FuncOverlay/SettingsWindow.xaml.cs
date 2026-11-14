@@ -5,8 +5,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using Microsoft.Win32;
+using System.Windows.Threading;
 using FuncOverlay.Core;
+using FuncOverlay.Dialogs;
 
 using MediaColor = System.Windows.Media.Color;
 using MediaBrushes = System.Windows.Media.Brushes;
@@ -18,7 +19,10 @@ namespace FuncOverlay
     {
         private readonly PluginManager _pluginManager;
         private readonly MainWindow _mainWindow;
+        private readonly DispatcherTimer _toastTimer;
         private bool _isRecordingKeybind = false;
+        private bool _isInitializing = true;
+        private string? _pendingDeleteFolder;
 
         public SettingsWindow(PluginManager pluginManager, MainWindow mainWindow)
         {
@@ -26,7 +30,19 @@ namespace FuncOverlay
             _mainWindow = mainWindow;
             InitializeComponent();
 
-            // Set current values from MainWindow
+            _toastTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(3)
+            };
+            _toastTimer.Tick += (s, e) =>
+            {
+                _toastTimer.Stop();
+                StatusToastBorder.Visibility = Visibility.Collapsed;
+            };
+
+            // Load current General settings
+            RunOnStartupCheckBox.IsChecked = AppSettingsManager.GetRunOnStartup();
+
             TransitionSlider.Value = _mainWindow.FadeDurationMs;
             TransitionValueText.Text = $"{_mainWindow.FadeDurationMs} ms";
 
@@ -35,32 +51,104 @@ namespace FuncOverlay
 
             HotkeyTextBox.Text = _mainWindow.HotkeyDisplayString;
 
+            _isInitializing = false;
+
             // Load and display installed plugins
             RefreshInstalledPluginsList();
 
             // Key listener for keybind recording
             this.PreviewKeyDown += SettingsWindow_PreviewKeyDown;
+            this.Closing += SettingsWindow_Closing;
+        }
+
+        private void SettingsWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+        {
+            // Commit any active input focus and persist latest settings cleanly
+            Keyboard.ClearFocus();
+            _mainWindow?.SaveSettings();
+        }
+
+        private void ShowToast(string message)
+        {
+            StatusToastText.Text = message;
+            StatusToastBorder.Visibility = Visibility.Visible;
+            _toastTimer.Stop();
+            _toastTimer.Start();
+        }
+
+        private void Header_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ButtonState == MouseButtonState.Pressed && !IsInsideButton(e.OriginalSource as DependencyObject))
+            {
+                this.DragMove();
+            }
+        }
+
+        private static bool IsInsideButton(DependencyObject? dep)
+        {
+            while (dep != null)
+            {
+                if (dep is System.Windows.Controls.Button) return true;
+                dep = VisualTreeHelper.GetParent(dep);
+            }
+            return false;
+        }
+
+        private void MinimizeButton_Click(object sender, RoutedEventArgs e)
+        {
+            this.WindowState = WindowState.Minimized;
+        }
+
+        private void CloseButton_Click(object sender, RoutedEventArgs e)
+        {
+            this.Close();
+        }
+
+        private void RunOnStartupCheckBox_Click(object sender, RoutedEventArgs e)
+        {
+            bool enable = RunOnStartupCheckBox.IsChecked == true;
+            bool ok = AppSettingsManager.SetRunOnStartup(enable);
+            if (!ok)
+            {
+                RunOnStartupCheckBox.IsChecked = !enable;
+                ShowToast("Failed to update Windows startup setting.");
+            }
+            else
+            {
+                ShowToast(enable ? "Run on startup enabled." : "Run on startup disabled.");
+            }
         }
 
         private void TransitionSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (TransitionValueText == null) return;
-            int ms = (int)e.NewValue;
+            int ms = (int)Math.Round(e.NewValue);
             TransitionValueText.Text = $"{ms} ms";
-            if (_mainWindow != null)
+            if (_mainWindow != null && !_isInitializing)
             {
                 _mainWindow.FadeDurationMs = ms;
+                _mainWindow.SaveSettings();
             }
         }
 
         private void AlphaSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (AlphaValueText == null) return;
-            int pct = (int)e.NewValue;
+            int pct = (int)Math.Round(e.NewValue);
             AlphaValueText.Text = $"{pct}%";
-            if (_mainWindow != null)
+            if (_mainWindow != null && !_isInitializing)
             {
                 _mainWindow.OverlayOpacity = pct / 100.0;
+                _mainWindow.RefreshBackdropTint();
+                _mainWindow.SaveSettings();
+            }
+        }
+
+        private void Slider_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (_mainWindow != null && !_isInitializing)
+            {
+                _mainWindow.SaveSettings();
             }
         }
 
@@ -79,6 +167,7 @@ namespace FuncOverlay
             ChangeKeybindButton.Content = "Change Keybind";
             HotkeyTextBox.Text = "Alt + Space";
             _mainWindow.UpdateHotkey("Alt + Space", ModifierKeys.Alt, Key.Space);
+            ShowToast("Hotkey reset to Alt + Space.");
         }
 
         private void SettingsWindow_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -123,6 +212,7 @@ namespace FuncOverlay
             ChangeKeybindButton.Content = "Change Keybind";
 
             _mainWindow.UpdateHotkey(finalCombo, modifiers, key);
+            ShowToast($"Hotkey set to {finalCombo}.");
         }
 
         private void OpenPluginsFolder_Click(object sender, RoutedEventArgs e)
@@ -139,32 +229,50 @@ namespace FuncOverlay
             _pluginManager.LoadAllPlugins();
             _mainWindow.ReloadOverlayContent();
             RefreshInstalledPluginsList();
-            System.Windows.MessageBox.Show("FuncOverlay plugins reloaded successfully.", "FuncOverlay", MessageBoxButton.OK, MessageBoxImage.Information);
+            ShowToast("FuncOverlay plugins reloaded successfully.");
         }
 
         private void InstallPlugin_Click(object sender, RoutedEventArgs e)
         {
-            OpenFileDialog dlg = new OpenFileDialog
+            // Custom monochrome WPF picker (zero default Windows shell OpenFileDialog)
+            PluginPickerWindow picker = new PluginPickerWindow
             {
-                Title = "Select Plugin Archive (.zip) or Folder",
-                Filter = "Plugin Archive (*.zip)|*.zip|All Files (*.*)|*.*",
-                CheckFileExists = true
+                Owner = this
             };
 
-            if (dlg.ShowDialog() == true)
+            if (picker.ShowDialog() == true && !string.IsNullOrEmpty(picker.SelectedPath))
             {
-                bool success = _pluginManager.ExtractPluginArchive(dlg.FileName);
+                bool success = _pluginManager.InstallFromPath(picker.SelectedPath);
                 if (success)
                 {
                     _mainWindow.ReloadOverlayContent();
                     RefreshInstalledPluginsList();
-                    System.Windows.MessageBox.Show("Plugin extracted and installed into plugins directory.", "FuncOverlay", MessageBoxButton.OK, MessageBoxImage.Information);
+                    ShowToast("Plugin installed into plugins directory.");
                 }
                 else
                 {
-                    System.Windows.MessageBox.Show("Failed to extract plugin archive.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    ShowToast("Failed to install selected plugin.");
                 }
             }
+        }
+
+        private void ConfirmCancel_Click(object sender, RoutedEventArgs e)
+        {
+            _pendingDeleteFolder = null;
+            ConfirmDialogOverlay.Visibility = Visibility.Collapsed;
+        }
+
+        private void ConfirmAccept_Click(object sender, RoutedEventArgs e)
+        {
+            if (!string.IsNullOrEmpty(_pendingDeleteFolder))
+            {
+                _pluginManager.DeletePlugin(_pendingDeleteFolder);
+                _mainWindow.ReloadOverlayContent();
+                RefreshInstalledPluginsList();
+                ShowToast("Plugin deleted.");
+            }
+            _pendingDeleteFolder = null;
+            ConfirmDialogOverlay.Visibility = Visibility.Collapsed;
         }
 
         private void RefreshInstalledPluginsList()
@@ -201,13 +309,13 @@ namespace FuncOverlay
 
             StackPanel container = new StackPanel();
 
-            // Top Row: Name & Description on left, Buttons on right
+            // Top Row: Name & Description on left, Enabled/Disabled slider + Buttons stacked vertically on right
             Grid topRow = new Grid();
             topRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             topRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             // Left: Name & Description
-            StackPanel infoPanel = new StackPanel();
+            StackPanel infoPanel = new StackPanel { Margin = new Thickness(0, 0, 16, 0) };
             StackPanel nameRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 2) };
             TextBlock nameText = new TextBlock
             {
@@ -249,8 +357,62 @@ namespace FuncOverlay
             Grid.SetColumn(infoPanel, 0);
             topRow.Children.Add(infoPanel);
 
-            // Right: Secondary Buttons (Black with white outline)
-            StackPanel buttonPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top };
+            // Right: Enabled / Disabled on/off slider ABOVE Open Folder & Delete Plugin buttons
+            StackPanel rightControls = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top
+            };
+
+            // Enabled / Disabled Row (above Delete Plugin & Open Folder)
+            StackPanel toggleRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+
+            TextBlock stateText = new TextBlock
+            {
+                Text = plugin.Metadata.enabled ? "Enabled" : "Disabled",
+                FontSize = 11,
+                FontWeight = FontWeights.Medium,
+                Foreground = plugin.Metadata.enabled
+                    ? MediaBrushes.White
+                    : new SolidColorBrush(MediaColor.FromRgb(161, 161, 170)),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+
+            CheckBox enabledToggle = new CheckBox
+            {
+                Style = (Style)FindResource("ToggleSwitchStyle"),
+                IsChecked = plugin.Metadata.enabled,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            enabledToggle.Click += (s, e) =>
+            {
+                bool isNowEnabled = enabledToggle.IsChecked == true;
+                plugin.Metadata.enabled = isNowEnabled;
+                stateText.Text = isNowEnabled ? "Enabled" : "Disabled";
+                stateText.Foreground = isNowEnabled
+                    ? MediaBrushes.White
+                    : new SolidColorBrush(MediaColor.FromRgb(161, 161, 170));
+                _pluginManager.SetPluginEnabled(plugin.FolderName, isNowEnabled);
+                _mainWindow.ReloadOverlayContent();
+            };
+
+            toggleRow.Children.Add(stateText);
+            toggleRow.Children.Add(enabledToggle);
+            rightControls.Children.Add(toggleRow);
+
+            // Secondary Buttons Row (Black with white outline)
+            StackPanel buttonPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
 
             Button openFolderBtn = new Button
             {
@@ -270,19 +432,18 @@ namespace FuncOverlay
             };
             deleteBtn.Click += (s, e) =>
             {
-                var res = System.Windows.MessageBox.Show($"Are you sure you want to delete plugin '{plugin.Metadata.name}'?", "Confirm Delete", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-                if (res == MessageBoxResult.Yes)
-                {
-                    _pluginManager.DeletePlugin(plugin.FolderName);
-                    _mainWindow.ReloadOverlayContent();
-                    RefreshInstalledPluginsList();
-                }
+                _pendingDeleteFolder = plugin.FolderName;
+                ConfirmDialogTitle.Text = "Delete Plugin";
+                ConfirmDialogMessage.Text = $"Are you sure you want to remove '{plugin.Metadata.name}' from the plugins directory?";
+                ConfirmDialogOverlay.Visibility = Visibility.Visible;
             };
 
             buttonPanel.Children.Add(openFolderBtn);
             buttonPanel.Children.Add(deleteBtn);
-            Grid.SetColumn(buttonPanel, 1);
-            topRow.Children.Add(buttonPanel);
+            rightControls.Children.Add(buttonPanel);
+
+            Grid.SetColumn(rightControls, 1);
+            topRow.Children.Add(rightControls);
 
             container.Children.Add(topRow);
 
@@ -331,7 +492,8 @@ namespace FuncOverlay
                     {
                         CheckBox chk = new CheckBox
                         {
-                            IsChecked = Convert.ToBoolean(def.value ?? def.defaultValue ?? false),
+                            Style = (Style)FindResource("ToggleSwitchStyle"),
+                            IsChecked = ParseBoolSetting(def.value ?? def.defaultValue),
                             VerticalAlignment = VerticalAlignment.Center
                         };
                         chk.Click += (s, e) =>
@@ -345,17 +507,12 @@ namespace FuncOverlay
                     {
                         TextBox txt = new TextBox
                         {
+                            Style = (Style)FindResource("MonochromeTextBoxStyle"),
                             Text = Convert.ToString(def.value ?? def.defaultValue ?? 0),
-                            Width = 70,
-                            Background = new SolidColorBrush(MediaColor.FromRgb(24, 24, 27)),
-                            Foreground = MediaBrushes.White,
-                            BorderBrush = new SolidColorBrush(MediaColor.FromRgb(39, 39, 42)),
-                            TextAlignment = TextAlignment.Right,
-                            FontFamily = new MediaFontFamily("Consolas"),
-                            FontSize = 11,
-                            Padding = new Thickness(4, 2, 4, 2)
+                            Width = 80,
+                            TextAlignment = TextAlignment.Right
                         };
-                        txt.LostFocus += (s, e) =>
+                        txt.TextChanged += (s, e) =>
                         {
                             if (int.TryParse(txt.Text, out int parsed))
                             {
@@ -369,12 +526,10 @@ namespace FuncOverlay
                     {
                         ComboBox cb = new ComboBox
                         {
+                            Style = (Style)FindResource("MonochromeComboBoxStyle"),
                             ItemsSource = def.options,
                             SelectedItem = Convert.ToString(def.value ?? def.defaultValue),
-                            Width = 120,
-                            Background = new SolidColorBrush(MediaColor.FromRgb(24, 24, 27)),
-                            Foreground = MediaBrushes.White,
-                            FontSize = 11
+                            Width = 136
                         };
                         cb.SelectionChanged += (s, e) =>
                         {
@@ -390,16 +545,11 @@ namespace FuncOverlay
                     {
                         TextBox txt = new TextBox
                         {
+                            Style = (Style)FindResource("MonochromeTextBoxStyle"),
                             Text = Convert.ToString(def.value ?? def.defaultValue ?? ""),
-                            Width = 140,
-                            Background = new SolidColorBrush(MediaColor.FromRgb(24, 24, 27)),
-                            Foreground = MediaBrushes.White,
-                            BorderBrush = new SolidColorBrush(MediaColor.FromRgb(39, 39, 42)),
-                            FontFamily = new MediaFontFamily("Consolas"),
-                            FontSize = 11,
-                            Padding = new Thickness(4, 2, 4, 2)
+                            Width = 150
                         };
-                        txt.LostFocus += (s, e) =>
+                        txt.TextChanged += (s, e) =>
                         {
                             _pluginManager.UpdatePluginSetting(plugin.FolderName, def.key, txt.Text ?? "");
                         };
@@ -418,9 +568,16 @@ namespace FuncOverlay
             return border;
         }
 
-        private void CloseButton_Click(object sender, RoutedEventArgs e)
+        private static bool ParseBoolSetting(object? raw)
         {
-            this.Close();
+            if (raw == null) return false;
+            if (raw is bool b) return b;
+            if (raw is System.Text.Json.JsonElement elem)
+            {
+                if (elem.ValueKind == System.Text.Json.JsonValueKind.True) return true;
+                if (elem.ValueKind == System.Text.Json.JsonValueKind.False) return false;
+            }
+            return bool.TryParse(raw.ToString(), out bool parsed) && parsed;
         }
     }
 }

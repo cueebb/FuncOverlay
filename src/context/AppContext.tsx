@@ -4,12 +4,14 @@ import { PluginFolder, PluginMetadata, PluginSettingDefinition } from '../types/
 interface AppContextType {
   isOverlayOpen: boolean;
   isFading: boolean;
+  runOnStartup: boolean;
   overlayOpacity: number;
   fadeDurationMs: number;
   hotkey: string;
   theme: 'dark' | 'light';
   plugins: PluginFolder[];
   isSettingsOpen: boolean;
+  isSettingsMinimized: boolean;
   isExplorerOpen: boolean;
   isCsharpSpecOpen: boolean;
   activeSettingsTab: 'general' | 'hotkey' | 'plugins' | 'csharpDev';
@@ -17,11 +19,13 @@ interface AppContextType {
   toastMessage: string | null;
   toggleOverlay: () => void;
   setOverlayOpen: (open: boolean) => void;
+  setRunOnStartup: (enabled: boolean) => void;
   setHotkey: (key: string) => void;
   setOverlayOpacity: (opacity: number) => void;
   setFadeDurationMs: (ms: number) => void;
   setTheme: (theme: 'dark' | 'light') => void;
   openSettings: (tab?: 'general' | 'hotkey' | 'plugins' | 'csharpDev') => void;
+  minimizeSettings: () => void;
   closeSettings: () => void;
   openExplorer: (folderName?: string) => void;
   closeExplorer: () => void;
@@ -49,16 +53,19 @@ const STORAGE_KEY_HOTKEY = 'funcoverlay_hotkey_v2'; // Bumped for Alt+Space defa
 const STORAGE_KEY_OPACITY = 'funcoverlay_opacity_v1';
 const STORAGE_KEY_FADE = 'funcoverlay_fade_v1';
 const STORAGE_KEY_THEME = 'funcoverlay_theme_v1';
+const STORAGE_KEY_STARTUP = 'funcoverlay_startup_v1';
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isOverlayOpen, setIsOverlayOpenState] = useState<boolean>(true);
   const [isFading, setIsFading] = useState<boolean>(false);
+  const [runOnStartup, setRunOnStartupState] = useState<boolean>(false);
   const [overlayOpacity, setOverlayOpacityState] = useState<number>(0.40);
   const [fadeDurationMs, setFadeDurationMsState] = useState<number>(250); // 250ms (0.25s)
   const [hotkey, setHotkeyState] = useState<string>('Alt+Space'); // Default: Alt+Space
   const [theme, setThemeState] = useState<'dark' | 'light'>('dark');
   const [plugins, setPlugins] = useState<PluginFolder[]>([]);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isSettingsMinimized, setIsSettingsMinimized] = useState<boolean>(false);
   const [isExplorerOpen, setIsExplorerOpen] = useState<boolean>(false);
   const [isCsharpSpecOpen, setIsCsharpSpecOpen] = useState<boolean>(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'hotkey' | 'plugins' | 'csharpDev'>('general');
@@ -77,13 +84,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       const savedOpacity = localStorage.getItem(STORAGE_KEY_OPACITY);
-      if (savedOpacity) setOverlayOpacityState(parseFloat(savedOpacity));
+      if (savedOpacity !== null) setOverlayOpacityState(parseFloat(savedOpacity));
 
       const savedFade = localStorage.getItem(STORAGE_KEY_FADE);
-      if (savedFade) setFadeDurationMsState(parseInt(savedFade, 10));
+      if (savedFade !== null) setFadeDurationMsState(parseInt(savedFade, 10));
 
       const savedTheme = localStorage.getItem(STORAGE_KEY_THEME);
       if (savedTheme === 'light' || savedTheme === 'dark') setThemeState(savedTheme);
+
+      const savedStartup = localStorage.getItem(STORAGE_KEY_STARTUP);
+      if (savedStartup === 'true') setRunOnStartupState(true);
 
       const savedPlugins = localStorage.getItem(STORAGE_KEY_PLUGINS);
       if (savedPlugins) {
@@ -143,13 +153,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, []);
 
+  const setRunOnStartup = useCallback((enabled: boolean) => {
+    setRunOnStartupState(enabled);
+    localStorage.setItem(STORAGE_KEY_STARTUP, enabled ? 'true' : 'false');
+    showToast(enabled ? 'Run on startup enabled' : 'Run on startup disabled');
+  }, [showToast]);
+
   const openSettings = useCallback((tab: 'general' | 'hotkey' | 'plugins' | 'csharpDev' = 'general') => {
     setActiveSettingsTab(tab);
+    setIsSettingsMinimized(false);
     setIsSettingsOpen(true);
   }, []);
 
+  const minimizeSettings = useCallback(() => {
+    setIsSettingsMinimized(true);
+    showToast('Settings minimized (reopen from tray)');
+  }, [showToast]);
+
   const closeSettings = useCallback(() => {
     setIsSettingsOpen(false);
+    setIsSettingsMinimized(false);
   }, []);
 
   const openExplorer = useCallback((folderName?: string) => {
@@ -642,12 +665,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       value={{
         isOverlayOpen,
         isFading,
+        runOnStartup,
         overlayOpacity,
         fadeDurationMs,
         hotkey,
         theme,
         plugins,
         isSettingsOpen,
+        isSettingsMinimized,
         isExplorerOpen,
         isCsharpSpecOpen,
         activeSettingsTab,
@@ -655,11 +680,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toastMessage,
         toggleOverlay,
         setOverlayOpen,
+        setRunOnStartup,
         setHotkey,
         setOverlayOpacity,
         setFadeDurationMs,
         setTheme,
         openSettings,
+        minimizeSettings,
         closeSettings,
         openExplorer,
         closeExplorer,

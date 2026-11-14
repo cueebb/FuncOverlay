@@ -29,6 +29,7 @@ export const OverlayCanvas: React.FC = () => {
     openCsharpSpec,
     restartApp,
     toggleOverlay,
+    setOverlayOpen,
   } = useApp();
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -42,11 +43,19 @@ export const OverlayCanvas: React.FC = () => {
     setContextMenu({ x: e.clientX, y: e.clientY });
   };
 
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    if (contextMenu) {
+      setContextMenu(null);
+      return;
+    }
+    if (e.target === e.currentTarget) {
+      setOverlayOpen(false);
+    }
+  };
+
   return (
     <div
-      onClick={() => {
-        if (contextMenu) setContextMenu(null);
-      }}
+      onClick={handleBackdropClick}
       onContextMenu={handleContextMenu}
       className="fixed inset-0 z-30 flex items-center justify-center select-none overflow-hidden"
       style={{
@@ -62,7 +71,10 @@ export const OverlayCanvas: React.FC = () => {
         <NoPluginsCenterWindow />
       ) : (
         /* CASE 2: PLUGINS INSTALLED -> RENDER DRAGGABLE FLUENT PLUGIN MODULE WIDGETS */
-        <div className="absolute inset-0 overflow-hidden pointer-events-auto">
+        <div
+          onClick={handleBackdropClick}
+          className="absolute inset-0 overflow-hidden pointer-events-auto"
+        >
           {plugins.map((pluginFolder) => (
             <PluginWidgetCard key={pluginFolder.metadata.id} pluginFolder={pluginFolder} />
           ))}
@@ -146,7 +158,10 @@ const NoPluginsCenterWindow: React.FC = () => {
   const { openExplorer, restartApp, openSettings } = useApp();
 
   return (
-    <div className="w-[540px] max-w-[92vw] rounded-2xl bg-zinc-950/90 border border-zinc-800 p-8 text-zinc-100 shadow-2xl backdrop-blur-xl animate-in zoom-in-95 duration-200">
+    <div
+      onClick={(e) => e.stopPropagation()}
+      className="w-[540px] max-w-[92vw] rounded-2xl bg-zinc-950/90 border border-zinc-800 p-8 text-zinc-100 shadow-2xl backdrop-blur-xl animate-in zoom-in-95 duration-200"
+    >
       {/* Header */}
       <div className="mb-6 pb-4 border-b border-zinc-800">
         <h2 className="text-xl font-bold tracking-tight text-white font-sans">
@@ -303,6 +318,7 @@ const PluginWidgetCard: React.FC<{ pluginFolder: PluginFolder }> = ({ pluginFold
   return (
     <div
       onMouseDown={handleMouseDown}
+      onClick={(e) => e.stopPropagation()}
       className={`absolute rounded-2xl bg-zinc-950/90 border border-zinc-800 shadow-2xl flex flex-col overflow-hidden text-zinc-100 transition-shadow ${
         isDragging ? 'ring-1 ring-zinc-500 opacity-95' : 'hover:border-zinc-700'
       }`}

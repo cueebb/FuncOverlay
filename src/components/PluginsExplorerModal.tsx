@@ -179,10 +179,8 @@ export const PluginsExplorerModal: React.FC = () => {
                 <div className="pt-4">
                   <button
                     onClick={() => {
-                      if (confirm(`Delete folder './plugins/${currentFolderObj.folderName}'?`)) {
-                        deletePlugin(currentFolderObj.metadata.id);
-                        setActiveFolder(null);
-                      }
+                      deletePlugin(currentFolderObj.metadata.id);
+                      setActiveFolder(null);
                     }}
                     className="w-full py-1.5 px-2 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white text-[11px] flex items-center justify-center gap-1 cursor-pointer transition-colors"
                   >

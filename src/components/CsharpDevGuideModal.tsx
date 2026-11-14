@@ -392,31 +392,51 @@ namespace FuncOverlay.Core
 }`,
 
     tray: `// =========================================================================
-// FuncOverlay - TrayIconManager.cs (System Tray Control in Notification Area)
+// FuncOverlay - TrayIconManager.cs (Custom Black & White WPF Tray Popup)
+// Zero default Windows ContextMenuStrip shell UI
 // =========================================================================
 using System;
+using System.Drawing;
 using System.Windows.Forms;
+using System.Diagnostics;
+using System.IO;
 
 namespace FuncOverlay.Tray
 {
-    public class TrayIconManager
+    public class TrayIconManager : IDisposable
     {
-        private NotifyIcon _notifyIcon;
+        private NotifyIcon? _notifyIcon;
+        private TrayMenuWindow? _trayMenuWindow;
 
-        public void Initialize(Action toggle, Action openSettings)
+        public void Initialize(
+            Action toggle,
+            Action openSettings,
+            Action restart,
+            Func<bool> isOverlayVisible,
+            Func<string> getHotkeyDisplay)
         {
-            ContextMenuStrip menu = new ContextMenuStrip();
-            menu.Items.Add("Toggle Overlay (Alt+Enter)", null, (s, e) => toggle?.Invoke());
-            menu.Items.Add("Settings", null, (s, e) => openSettings?.Invoke());
-            menu.Items.Add("-");
-            menu.Items.Add("Exit", null, (s, e) => Application.Exit());
+            _trayMenuWindow = new TrayMenuWindow(
+                toggleAction: toggle,
+                openSettingsAction: openSettings,
+                openPluginsAction: OpenPluginsFolder,
+                restartAction: restart,
+                exitAction: () => System.Windows.Application.Current?.Dispatcher.Invoke(() => System.Windows.Application.Current.Shutdown())
+            );
 
             _notifyIcon = new NotifyIcon
             {
-                Icon = System.Drawing.SystemIcons.Application,
+                Icon = new Icon(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico")),
                 Text = "FuncOverlay",
-                ContextMenuStrip = menu,
                 Visible = true
+            };
+
+            _notifyIcon.MouseUp += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Right || e.Button == MouseButtons.Left)
+                {
+                    System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+                        _trayMenuWindow?.ToggleMenu(isOverlayVisible(), getHotkeyDisplay()));
+                }
             };
         }
     }

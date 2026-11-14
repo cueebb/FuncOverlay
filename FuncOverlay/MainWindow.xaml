@@ -7,14 +7,18 @@
         Background="Transparent"
         Topmost="True"
         WindowState="Maximized"
+        ResizeMode="NoResize"
         ShowInTaskbar="False">
     
     <Grid x:Name="OverlayRootGrid" Background="#00000000" Opacity="0">
-        <!-- Backdrop Tint Layer (Covers entire screen and taskbar) -->
-        <Border x:Name="BackdropTint" Background="#66000000" />
+        <!-- Backdrop Tint Layer (Covers entire screen and taskbar; left-click closes overlay) -->
+        <Border x:Name="BackdropTint"
+                Background="#66000000"
+                MouseLeftButtonDown="BackdropTint_MouseLeftButtonDown"
+                MouseRightButtonDown="BackdropTint_MouseRightButtonDown" />
 
         <!-- Plugins Canvas (Where plugin modules are rendered) -->
-        <Canvas x:Name="PluginsCanvas" Visibility="Collapsed" />
+        <Canvas x:Name="PluginsCanvas" Background="{x:Null}" Visibility="Collapsed" />
 
         <!-- Center Guide: "How to Install Plugins" (Shown when no plugins installed) -->
         <Border x:Name="NoPluginsCenterBorder"

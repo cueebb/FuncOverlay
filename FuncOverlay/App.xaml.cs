@@ -21,13 +21,17 @@ namespace FuncOverlay
             _mainWindow = new MainWindow(_pluginManager);
             _mainWindow.Show();
 
-            // Initialize System Tray (Icon in notification area)
+            // Initialize System Tray with custom black & white tray popup
             _trayManager = new TrayIconManager();
             _trayManager.Initialize(
                 toggle: () => _mainWindow.ToggleOverlayWithAnimation(),
                 openSettings: () => _mainWindow.OpenSettingsWindow(),
-                restart: () => RestartApplication()
+                restart: () => RestartApplication(),
+                isOverlayVisible: () => _mainWindow.IsOverlayVisible,
+                getHotkeyDisplay: () => _mainWindow.HotkeyDisplayString
             );
+
+            _mainWindow.SetTrayManager(_trayManager);
         }
 
         private void RestartApplication()

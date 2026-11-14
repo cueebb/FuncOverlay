@@ -42,6 +42,7 @@ namespace FuncOverlay.Core
         public PluginPosition position { get; set; } = new PluginPosition();
         public PluginSize size { get; set; } = new PluginSize();
         public bool enabled { get; set; } = true;
+        public string widgetType { get; set; } = string.Empty;
         public List<PluginSettingDefinition>? settingsSchema { get; set; }
         public Dictionary<string, object?>? settings { get; set; }
     }
@@ -312,6 +313,45 @@ namespace FuncOverlay.Core
                 Debug.WriteLine($"Failed to update plugin setting: {ex.Message}");
             }
             return false;
+        }
+
+        public PluginFolderItem? FindFolderByPluginId(string pluginId)
+        {
+            foreach (var folder in LoadedPluginFolders)
+            {
+                if (string.Equals(folder.Metadata.id, pluginId, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(folder.FolderName, pluginId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return folder;
+                }
+            }
+            return null;
+        }
+
+        public static Dictionary<string, object?> GetMergedSettings(PluginMetadata meta)
+        {
+            var merged = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+
+            if (meta.settingsSchema != null)
+            {
+                foreach (var def in meta.settingsSchema)
+                {
+                    if (!string.IsNullOrEmpty(def.key))
+                    {
+                        merged[def.key] = def.value ?? def.defaultValue;
+                    }
+                }
+            }
+
+            if (meta.settings != null)
+            {
+                foreach (var kv in meta.settings)
+                {
+                    merged[kv.Key] = kv.Value;
+                }
+            }
+
+            return merged;
         }
     }
 }

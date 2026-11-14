@@ -32,7 +32,7 @@ export interface PluginMetadata {
   icon?: string;
   hotkey?: string;
   dependencies?: string[];
-  widgetType?: 'clock' | 'sysinfo' | 'notes' | 'volume' | 'custom';
+  widgetType?: 'obs_shortcuts' | 'clock' | 'sysinfo' | 'notes' | 'volume' | 'custom';
   customScriptContent?: string;
   settingsSchema?: PluginSettingDefinition[];
   settings?: Record<string, any>;

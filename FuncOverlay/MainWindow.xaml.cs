@@ -1,15 +1,20 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Shapes;
+using System.Windows.Threading;
 using FuncOverlay.Core;
 using FuncOverlay.Tray;
 
 using MediaColor = System.Windows.Media.Color;
+using MediaColorConverter = System.Windows.Media.ColorConverter;
 using MediaBrushes = System.Windows.Media.Brushes;
 using MediaFontFamily = System.Windows.Media.FontFamily;
 
@@ -28,6 +33,14 @@ namespace FuncOverlay
         private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
         private readonly PluginManager _pluginManager;
+        private readonly PluginIntentRouter _intentRouter;
+        private readonly PluginHostService _pluginHostService;
+        private readonly DispatcherTimer _overlayToastTimer;
+        private readonly Dictionary<string, Border> _dynamicBodyContainers =
+            new Dictionary<string, Border>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, PluginRenderPayload> _latestPayloads =
+            new Dictionary<string, PluginRenderPayload>(StringComparer.OrdinalIgnoreCase);
+
         private TrayIconManager? _trayManager;
         private bool _isOverlayVisible = true;
         private IntPtr _windowHandle;
@@ -42,6 +55,16 @@ namespace FuncOverlay
         public MainWindow(PluginManager pluginManager)
         {
             _pluginManager = pluginManager;
+            _intentRouter = new PluginIntentRouter(_pluginManager, this);
+            _pluginHostService = new PluginHostService(this.Dispatcher, _intentRouter);
+            _pluginHostService.PluginRenderReceived += OnPluginRenderReceived;
+
+            _overlayToastTimer = new DispatcherTimer();
+            _overlayToastTimer.Tick += (s, e) =>
+            {
+                _overlayToastTimer.Stop();
+                OverlayToastBorder.Visibility = Visibility.Collapsed;
+            };
 
             // Load persisted settings from %LocalAppData%\FuncOverlay\settings.json
             AppSettingsData saved = AppSettingsManager.Load();
@@ -70,6 +93,12 @@ namespace FuncOverlay
 
             HwndSource source = HwndSource.FromHwnd(_windowHandle);
             source.AddHook(HwndHook);
+
+            // Start active plugins ONLY while overlay is open
+            if (_isOverlayVisible)
+            {
+                _pluginHostService.StartAllForOpenOverlay(_pluginManager.LoadedPluginFolders);
+            }
 
             // Initially fade in overlay
             AnimateOpacity(1.0);
@@ -110,17 +139,32 @@ namespace FuncOverlay
             BackdropTint.Background = new SolidColorBrush(MediaColor.FromArgb(alphaByte, 0, 0, 0));
         }
 
+        public void ShowOverlayWithAnimation()
+        {
+            if (_isOverlayVisible) return;
+            _isOverlayVisible = true;
+            _pluginHostService.StartAllForOpenOverlay(_pluginManager.LoadedPluginFolders);
+            AnimateOpacity(1.0);
+        }
+
         public void HideOverlayWithAnimation()
         {
             if (!_isOverlayVisible) return;
             _isOverlayVisible = false;
+            _pluginHostService.StopAllOnOverlayClosed();
             AnimateOpacity(0.0);
         }
 
         public void ToggleOverlayWithAnimation()
         {
-            _isOverlayVisible = !_isOverlayVisible;
-            AnimateOpacity(_isOverlayVisible ? 1.0 : 0.0);
+            if (_isOverlayVisible)
+            {
+                HideOverlayWithAnimation();
+            }
+            else
+            {
+                ShowOverlayWithAnimation();
+            }
         }
 
         private void AnimateOpacity(double targetOpacity)
@@ -150,6 +194,15 @@ namespace FuncOverlay
             OverlayRootGrid.BeginAnimation(UIElement.OpacityProperty, fade);
         }
 
+        public void ShowOverlayToast(string message, int durationMs = 2500)
+        {
+            OverlayToastText.Text = message;
+            OverlayToastBorder.Visibility = Visibility.Visible;
+            _overlayToastTimer.Stop();
+            _overlayToastTimer.Interval = TimeSpan.FromMilliseconds(Math.Clamp(durationMs, 800, 8000));
+            _overlayToastTimer.Start();
+        }
+
         public void SaveSettings()
         {
             AppSettingsManager.Save(new AppSettingsData
@@ -160,6 +213,23 @@ namespace FuncOverlay
                 HotkeyModifiers = _currentModifiers,
                 HotkeyVk = _currentVk
             });
+        }
+
+        public void NotifyPluginSettingsUpdated(string folderName)
+        {
+            var folder = _pluginManager.FindFolderByPluginId(folderName);
+            if (folder != null)
+            {
+                _pluginHostService.NotifySettingsUpdated(folder);
+            }
+        }
+
+        public void SyncSettingsWindowIfOpen()
+        {
+            if (_settingsWindow != null && _settingsWindow.IsLoaded)
+            {
+                _settingsWindow.RefreshFromMainWindow();
+            }
         }
 
         public void UpdateHotkey(string display, ModifierKeys modifiers, Key key)
@@ -190,6 +260,8 @@ namespace FuncOverlay
 
         public void ReloadOverlayContent()
         {
+            _pluginHostService.StopAllOnOverlayClosed();
+            _dynamicBodyContainers.Clear();
             PluginsCanvas.Children.Clear();
 
             if (_pluginManager.LoadedPluginFolders.Count == 0)
@@ -202,28 +274,47 @@ namespace FuncOverlay
             NoPluginsCenterBorder.Visibility = Visibility.Collapsed;
             PluginsCanvas.Visibility = Visibility.Visible;
 
-            foreach (var plugin in _pluginManager.LoadedPlugins)
+            foreach (var folder in _pluginManager.LoadedPluginFolders)
             {
-                Border widgetCard = CreateOverlayPluginWidget(plugin);
-                Canvas.SetLeft(widgetCard, Math.Max(16, plugin.position.x));
-                Canvas.SetTop(widgetCard, Math.Max(16, plugin.position.y));
+                if (!folder.Metadata.enabled) continue;
+
+                Border widgetCard = CreateOverlayPluginWidget(folder);
+                Canvas.SetLeft(widgetCard, Math.Max(16, folder.Metadata.position.x));
+                Canvas.SetTop(widgetCard, Math.Max(16, folder.Metadata.position.y));
                 PluginsCanvas.Children.Add(widgetCard);
+            }
+
+            if (_isOverlayVisible)
+            {
+                _pluginHostService.StartAllForOpenOverlay(_pluginManager.LoadedPluginFolders);
             }
         }
 
-        private Border CreateOverlayPluginWidget(PluginMetadata plugin)
+        private void OnPluginRenderReceived(string pluginId, PluginRenderPayload payload)
         {
-            double width = plugin.size.width > 160 ? plugin.size.width : 320;
-            double height = plugin.size.height > 120 ? plugin.size.height : 220;
+            _latestPayloads[pluginId] = payload;
+            if (_dynamicBodyContainers.TryGetValue(pluginId, out Border? bodyHost))
+            {
+                bodyHost.Child = BuildInteractiveGrayPluginBody(pluginId, payload);
+            }
+        }
 
+        private Border CreateOverlayPluginWidget(PluginFolderItem folder)
+        {
+            PluginMetadata plugin = folder.Metadata;
+            bool isObsShortcuts = string.Equals(plugin.widgetType, "obs_shortcuts", StringComparison.OrdinalIgnoreCase) ||
+                                  string.Equals(plugin.id, "obs_shortcuts", StringComparison.OrdinalIgnoreCase);
+
+            double width = plugin.size.width >= 180 ? plugin.size.width : (isObsShortcuts ? 252 : 300);
+
+            // Unified Gray Plugin Style
             Border card = new Border
             {
                 Width = width,
-                Height = height,
-                Background = new SolidColorBrush(MediaColor.FromArgb(238, 9, 9, 11)),
-                BorderBrush = new SolidColorBrush(MediaColor.FromRgb(39, 39, 42)),
+                Background = new SolidColorBrush(MediaColor.FromArgb(240, 24, 24, 27)), // #F018181B
+                BorderBrush = new SolidColorBrush(MediaColor.FromRgb(45, 45, 50)),       // #2D2D32
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(14),
+                CornerRadius = new CornerRadius(12),
                 ClipToBounds = true
             };
 
@@ -231,19 +322,20 @@ namespace FuncOverlay
             card.MouseLeftButtonDown += (s, e) => e.Handled = true;
             card.MouseRightButtonDown += (s, e) => e.Handled = true;
 
-            Grid root = new Grid();
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(36) });
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(24) });
+            StackPanel root = new StackPanel
+            {
+                Orientation = Orientation.Vertical
+            };
 
-            // Draggable Plugin Title Bar
+            // Compact Draggable Gray Header
             Border titleBar = new Border
             {
-                Background = new SolidColorBrush(MediaColor.FromRgb(24, 24, 27)),
-                BorderBrush = new SolidColorBrush(MediaColor.FromRgb(39, 39, 42)),
+                Height = 32,
+                Background = new SolidColorBrush(MediaColor.FromRgb(31, 31, 35)),       // #1F1F23
+                BorderBrush = new SolidColorBrush(MediaColor.FromRgb(45, 45, 50)),
                 BorderThickness = new Thickness(0, 0, 0, 1),
-                Padding = new Thickness(12, 0, 12, 0),
-                Cursor = System.Windows.Input.Cursors.Hand
+                Padding = new Thickness(10, 0, 10, 0),
+                Cursor = System.Windows.Input.Cursors.SizeAll
             };
 
             Grid titleGrid = new Grid();
@@ -253,18 +345,18 @@ namespace FuncOverlay
             TextBlock titleText = new TextBlock
             {
                 Text = plugin.name,
-                FontSize = 12,
+                FontSize = 11.5,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = MediaBrushes.White,
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(244, 244, 245)),
                 VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis
             };
 
             Border langBadge = new Border
             {
-                Background = new SolidColorBrush(MediaColor.FromRgb(39, 39, 42)),
+                Background = new SolidColorBrush(MediaColor.FromRgb(45, 45, 50)),
                 CornerRadius = new CornerRadius(4),
-                Padding = new Thickness(6, 1, 6, 1),
+                Padding = new Thickness(5, 1, 5, 1),
                 VerticalAlignment = VerticalAlignment.Center
             };
             langBadge.Child = new TextBlock
@@ -272,7 +364,7 @@ namespace FuncOverlay
                 Text = plugin.language.ToUpperInvariant(),
                 FontFamily = new MediaFontFamily("Consolas"),
                 FontSize = 9,
-                Foreground = new SolidColorBrush(MediaColor.FromRgb(212, 212, 216))
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(180, 180, 188))
             };
 
             Grid.SetColumn(titleText, 0);
@@ -281,7 +373,7 @@ namespace FuncOverlay
             titleGrid.Children.Add(langBadge);
             titleBar.Child = titleGrid;
 
-            // Drag Support on Plugin Card Title Bar
+            // Drag Support on Plugin Card Header
             bool isDragging = false;
             System.Windows.Point dragOffset = new System.Windows.Point();
             titleBar.MouseLeftButtonDown += (s, e) =>
@@ -296,8 +388,9 @@ namespace FuncOverlay
             {
                 if (!isDragging) return;
                 System.Windows.Point mousePos = e.GetPosition(PluginsCanvas);
+                double cardHeight = card.ActualHeight > 0 ? card.ActualHeight : 100;
                 double nx = Math.Max(8, Math.Min(ActualWidth - card.Width - 8, mousePos.X - dragOffset.X));
-                double ny = Math.Max(8, Math.Min(ActualHeight - card.Height - 8, mousePos.Y - dragOffset.Y));
+                double ny = Math.Max(8, Math.Min(ActualHeight - cardHeight - 8, mousePos.Y - dragOffset.Y));
                 Canvas.SetLeft(card, nx);
                 Canvas.SetTop(card, ny);
             };
@@ -310,43 +403,270 @@ namespace FuncOverlay
                 e.Handled = true;
             };
 
-            Grid.SetRow(titleBar, 0);
             root.Children.Add(titleBar);
 
-            // Plugin Body
-            StackPanel body = new StackPanel { Margin = new Thickness(14) };
-            body.Children.Add(new TextBlock
+            // Compact Dynamic Body Container (no fixed height -> shrinks cleanly when no bottom status items exist)
+            Border bodyHost = new Border
             {
-                Text = plugin.description,
-                FontSize = 11,
-                Foreground = new SolidColorBrush(MediaColor.FromRgb(161, 161, 170)),
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 0, 0, 8)
-            });
-            Grid.SetRow(body, 1);
-            root.Children.Add(body);
-
-            // Plugin Footer
-            Border footer = new Border
-            {
-                Background = new SolidColorBrush(MediaColor.FromArgb(160, 0, 0, 0)),
-                BorderBrush = new SolidColorBrush(MediaColor.FromRgb(39, 39, 42)),
-                BorderThickness = new Thickness(0, 1, 0, 0),
-                Padding = new Thickness(12, 0, 12, 0)
+                Padding = new Thickness(10)
             };
-            footer.Child = new TextBlock
-            {
-                Text = plugin.entryPoint,
-                FontFamily = new MediaFontFamily("Consolas"),
-                FontSize = 10,
-                Foreground = new SolidColorBrush(MediaColor.FromRgb(113, 113, 122)),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            Grid.SetRow(footer, 2);
-            root.Children.Add(footer);
+            _dynamicBodyContainers[plugin.id] = bodyHost;
 
+            if (_latestPayloads.TryGetValue(plugin.id, out PluginRenderPayload? existingPayload))
+            {
+                bodyHost.Child = BuildInteractiveGrayPluginBody(plugin.id, existingPayload);
+            }
+            else if (isObsShortcuts)
+            {
+                bodyHost.Child = BuildInteractiveGrayPluginBody(plugin.id, CreateDefaultObsShortcutsPayload());
+            }
+            else
+            {
+                StackPanel fallbackBody = new StackPanel();
+                fallbackBody.Children.Add(new TextBlock
+                {
+                    Text = plugin.description,
+                    FontSize = 11,
+                    Foreground = new SolidColorBrush(MediaColor.FromRgb(161, 161, 170)),
+                    TextWrapping = TextWrapping.Wrap
+                });
+                fallbackBody.Children.Add(new TextBlock
+                {
+                    Text = plugin.entryPoint,
+                    FontFamily = new MediaFontFamily("Consolas"),
+                    FontSize = 10,
+                    Foreground = new SolidColorBrush(MediaColor.FromRgb(113, 113, 122)),
+                    Margin = new Thickness(0, 6, 0, 0)
+                });
+                bodyHost.Child = fallbackBody;
+            }
+
+            root.Children.Add(bodyHost);
             card.Child = root;
             return card;
+        }
+
+        private static PluginRenderPayload CreateDefaultObsShortcutsPayload()
+        {
+            return new PluginRenderPayload
+            {
+                type = "render",
+                style = "gray",
+                buttons = new List<PluginRenderButton>
+                {
+                    new PluginRenderButton { id = "toggle_record", dotColor = "#6a010e", tooltip = "Start Recording" },
+                    new PluginRenderButton { id = "toggle_replay", secondaryAction = "save_replay", dotColor = "#015637", tooltip = "Start Replay Buffer (Right-click to Save)" },
+                    new PluginRenderButton { id = "toggle_stream", dotColor = "#340f57", tooltip = "Start Broadcast" },
+                    new PluginRenderButton { id = "open_obs", icon = "external_app", tooltip = "Open / Restore OBS Studio" }
+                },
+                statusItems = new List<PluginStatusItem>()
+            };
+        }
+
+        private UIElement BuildInteractiveGrayPluginBody(string pluginId, PluginRenderPayload payload)
+        {
+            StackPanel container = new StackPanel
+            {
+                Orientation = Orientation.Vertical
+            };
+
+            // Row of Gray Shortcut Buttons (4 buttons in a row)
+            if (payload.buttons != null && payload.buttons.Count > 0)
+            {
+                UniformGrid buttonRow = new UniformGrid
+                {
+                    Columns = payload.buttons.Count,
+                    Rows = 1
+                };
+
+                for (int i = 0; i < payload.buttons.Count; i++)
+                {
+                    PluginRenderButton btn = payload.buttons[i];
+                    Thickness margin = i < payload.buttons.Count - 1
+                        ? new Thickness(0, 0, 6, 0)
+                        : new Thickness(0);
+
+                    Border grayButton = CreateGrayShortcutButton(pluginId, btn, margin);
+                    buttonRow.Children.Add(grayButton);
+                }
+
+                container.Children.Add(buttonRow);
+            }
+
+            // Dynamic Compact Bottom Status Row (completely omitted when nothing is active -> zero blank space)
+            if (payload.statusItems != null && payload.statusItems.Count > 0)
+            {
+                WrapPanel statusPanel = new WrapPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Margin = new Thickness(2, 8, 2, 0)
+                };
+
+                foreach (var item in payload.statusItems)
+                {
+                    StackPanel itemRow = new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 2, 12, 0)
+                    };
+
+                    Ellipse statusDot = new Ellipse
+                    {
+                        Width = 8,
+                        Height = 8,
+                        Fill = ParseHexBrush(item.dotColor, MediaColor.FromRgb(161, 161, 170)),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 0, 5, 0)
+                    };
+
+                    TextBlock statusText = new TextBlock
+                    {
+                        Text = item.text,
+                        FontFamily = new MediaFontFamily("Consolas"),
+                        FontSize = 11,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = new SolidColorBrush(MediaColor.FromRgb(228, 228, 231)),
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+
+                    itemRow.Children.Add(statusDot);
+                    itemRow.Children.Add(statusText);
+                    statusPanel.Children.Add(itemRow);
+                }
+
+                container.Children.Add(statusPanel);
+            }
+
+            return container;
+        }
+
+        private Border CreateGrayShortcutButton(string pluginId, PluginRenderButton btn, Thickness margin)
+        {
+            SolidColorBrush idleBg = new SolidColorBrush(MediaColor.FromRgb(42, 42, 46));      // #2A2A2E
+            SolidColorBrush hoverBg = new SolidColorBrush(MediaColor.FromRgb(58, 58, 64));     // #3A3A40
+            SolidColorBrush pressedBg = new SolidColorBrush(MediaColor.FromRgb(74, 74, 82));   // #4A4A52
+            SolidColorBrush idleBorder = new SolidColorBrush(MediaColor.FromRgb(63, 63, 70));  // #3F3F46
+            SolidColorBrush activeBorder = new SolidColorBrush(MediaColor.FromRgb(92, 92, 102));
+
+            Border buttonBox = new Border
+            {
+                Height = 38,
+                Margin = margin,
+                Background = idleBg,
+                BorderBrush = btn.active ? activeBorder : idleBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                ToolTip = string.IsNullOrEmpty(btn.tooltip) ? null : new System.Windows.Controls.ToolTip
+                {
+                    Content = btn.tooltip,
+                    Background = new SolidColorBrush(MediaColor.FromRgb(24, 24, 27)),
+                    Foreground = MediaBrushes.White,
+                    BorderBrush = new SolidColorBrush(MediaColor.FromRgb(63, 63, 70))
+                }
+            };
+
+            if (string.Equals(btn.icon, "external_app", StringComparison.OrdinalIgnoreCase))
+            {
+                // Vector "Open Another App" icon (box + diagonal launch arrow)
+                Viewbox iconBox = new Viewbox
+                {
+                    Width = 15,
+                    Height = 15,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Canvas iconCanvas = new Canvas { Width = 24, Height = 24 };
+                System.Windows.Shapes.Path openPath = new System.Windows.Shapes.Path
+                {
+                    Stroke = new SolidColorBrush(MediaColor.FromRgb(228, 228, 231)),
+                    StrokeThickness = 2.0,
+                    StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Data = Geometry.Parse("M14,4 H20 V10 M20,4 L11,13 M18,14 V19 A2,2 0 0 1 16,21 H5 A2,2 0 0 1 3,19 V8 A2,2 0 0 1 5,6 H10")
+                };
+                iconCanvas.Children.Add(openPath);
+                iconBox.Child = iconCanvas;
+                buttonBox.Child = iconBox;
+            }
+            else
+            {
+                Ellipse dot = new Ellipse
+                {
+                    Width = 10,
+                    Height = 10,
+                    Fill = ParseHexBrush(btn.dotColor, MediaColor.FromRgb(161, 161, 170)),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+
+                if (btn.blinking)
+                {
+                    DoubleAnimation blinkAnim = new DoubleAnimation
+                    {
+                        From = 1.0,
+                        To = 0.22,
+                        Duration = TimeSpan.FromMilliseconds(550),
+                        AutoReverse = true,
+                        RepeatBehavior = RepeatBehavior.Forever,
+                        EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+                    };
+                    dot.BeginAnimation(UIElement.OpacityProperty, blinkAnim);
+                }
+
+                buttonBox.Child = dot;
+            }
+
+            buttonBox.MouseEnter += (s, e) => buttonBox.Background = hoverBg;
+            buttonBox.MouseLeave += (s, e) => buttonBox.Background = idleBg;
+
+            buttonBox.MouseLeftButtonDown += (s, e) =>
+            {
+                buttonBox.Background = pressedBg;
+                _pluginHostService.SendAction(pluginId, btn.id);
+                e.Handled = true;
+            };
+            buttonBox.MouseLeftButtonUp += (s, e) =>
+            {
+                buttonBox.Background = buttonBox.IsMouseOver ? hoverBg : idleBg;
+                e.Handled = true;
+            };
+
+            buttonBox.MouseRightButtonDown += (s, e) =>
+            {
+                if (!string.IsNullOrEmpty(btn.secondaryAction))
+                {
+                    buttonBox.Background = pressedBg;
+                    _pluginHostService.SendAction(pluginId, btn.secondaryAction);
+                }
+                e.Handled = true;
+            };
+            buttonBox.MouseRightButtonUp += (s, e) =>
+            {
+                buttonBox.Background = buttonBox.IsMouseOver ? hoverBg : idleBg;
+                e.Handled = true;
+            };
+
+            return buttonBox;
+        }
+
+        private static SolidColorBrush ParseHexBrush(string? hex, MediaColor fallback)
+        {
+            if (!string.IsNullOrWhiteSpace(hex))
+            {
+                try
+                {
+                    object parsed = MediaColorConverter.ConvertFromString(hex);
+                    if (parsed is MediaColor color)
+                    {
+                        return new SolidColorBrush(color);
+                    }
+                }
+                catch { }
+            }
+            return new SolidColorBrush(fallback);
         }
 
         public void OpenSettingsWindow()
@@ -370,6 +690,7 @@ namespace FuncOverlay
 
         protected override void OnClosed(EventArgs e)
         {
+            _pluginHostService.Dispose();
             if (_windowHandle != IntPtr.Zero)
             {
                 UnregisterHotKey(_windowHandle, HOTKEY_ID);

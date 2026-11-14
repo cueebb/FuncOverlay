@@ -263,15 +263,19 @@ const NoPluginsCenterWindow: React.FC = () => {
 };
 
 /* ========================================================================= */
-/* DRAGGABLE FLUENT PLUGIN MODULE WIDGET CARD (MONOCHROMATIC) */
+/* DRAGGABLE UNIFIED GRAY PLUGIN MODULE WIDGET CARD                           */
 /* ========================================================================= */
 const PluginWidgetCard: React.FC<{ pluginFolder: PluginFolder }> = ({ pluginFolder }) => {
   const { updatePluginPosition, deletePlugin, openExplorer } = useApp();
   const { metadata, folderName } = pluginFolder;
   const { id, name, entryPoint, language, position, size, enabled, widgetType } = metadata;
+  const isObsShortcuts = widgetType === 'obs_shortcuts' || id === 'obs_shortcuts';
 
   const [pos, setPos] = useState({ x: position.x || 100, y: position.y || 100 });
-  const [dim] = useState({ width: size.width || 320, height: size.height || 220 });
+  const [dim] = useState({
+    width: size.width || (isObsShortcuts ? 252 : 320),
+    height: size.height || (isObsShortcuts ? 96 : 220),
+  });
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
@@ -292,7 +296,7 @@ const PluginWidgetCard: React.FC<{ pluginFolder: PluginFolder }> = ({ pluginFold
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDragging) return;
       const newX = Math.max(10, Math.min(window.innerWidth - dim.width - 10, e.clientX - dragOffset.x));
-      const newY = Math.max(50, Math.min(window.innerHeight - dim.height - 10, e.clientY - dragOffset.y));
+      const newY = Math.max(50, Math.min(window.innerHeight - 100, e.clientY - dragOffset.y));
       setPos({ x: newX, y: newY });
     };
 
@@ -319,47 +323,49 @@ const PluginWidgetCard: React.FC<{ pluginFolder: PluginFolder }> = ({ pluginFold
     <div
       onMouseDown={handleMouseDown}
       onClick={(e) => e.stopPropagation()}
-      className={`absolute rounded-2xl bg-zinc-950/90 border border-zinc-800 shadow-2xl flex flex-col overflow-hidden text-zinc-100 transition-shadow ${
-        isDragging ? 'ring-1 ring-zinc-500 opacity-95' : 'hover:border-zinc-700'
+      className={`absolute rounded-xl bg-zinc-900/95 border border-zinc-700/70 shadow-2xl flex flex-col overflow-hidden text-zinc-100 transition-shadow ${
+        isDragging ? 'ring-1 ring-zinc-400 opacity-95' : 'hover:border-zinc-600'
       }`}
       style={{
         left: `${pos.x}px`,
         top: `${pos.y}px`,
         width: `${dim.width}px`,
-        height: `${dim.height}px`,
+        height: isObsShortcuts ? 'auto' : `${dim.height}px`,
       }}
     >
-      {/* Title Bar */}
-      <div className="h-9 px-3 bg-zinc-900/90 border-b border-zinc-800 flex items-center justify-between cursor-grab active:cursor-grabbing text-xs">
-        <div className="flex items-center gap-2 overflow-hidden">
-          <GripHorizontal className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-          <span className="font-semibold text-white truncate max-w-[160px]">{name}</span>
-          <span className="px-1.5 py-0.2 rounded text-[10px] font-mono uppercase bg-zinc-800 text-zinc-300 border border-zinc-700">
+      {/* Compact Gray Title Bar */}
+      <div className="h-8 px-2.5 bg-zinc-800/80 border-b border-zinc-700/70 flex items-center justify-between cursor-grab active:cursor-grabbing text-xs">
+        <div className="flex items-center gap-1.5 overflow-hidden">
+          <GripHorizontal className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+          <span className="font-semibold text-zinc-100 truncate max-w-[145px] text-[11px]">{name}</span>
+          <span className="px-1 py-0.2 rounded text-[9px] font-mono uppercase bg-zinc-700/80 text-zinc-300">
             {language}
           </span>
         </div>
 
-        <div className="flex items-center gap-1 no-drag">
+        <div className="flex items-center gap-0.5 no-drag">
           <button
             onClick={() => openExplorer(folderName)}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+            className="p-1 rounded hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors cursor-pointer"
             title="Inspect Plugin Metadata JSON"
           >
-            <FileCode className="w-3.5 h-3.5" />
+            <FileCode className="w-3 h-3" />
           </button>
           <button
             onClick={() => deletePlugin(id)}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+            className="p-1 rounded hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors cursor-pointer"
             title="Remove Module"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="w-3 h-3" />
           </button>
         </div>
       </div>
 
       {/* Widget Body */}
-      <div className="flex-1 p-4 overflow-y-auto font-sans flex flex-col">
-        {widgetType === 'clock' ? (
+      <div className={`${isObsShortcuts ? 'p-2.5' : 'flex-1 p-4 overflow-y-auto'} font-sans flex flex-col no-drag`}>
+        {isObsShortcuts ? (
+          <ObsShortcutsWidgetBody pluginFolder={pluginFolder} />
+        ) : widgetType === 'clock' ? (
           <ClockWidgetBody />
         ) : widgetType === 'sysinfo' ? (
           <SysInfoWidgetBody />
@@ -368,22 +374,215 @@ const PluginWidgetCard: React.FC<{ pluginFolder: PluginFolder }> = ({ pluginFold
         )}
       </div>
 
-      {/* Footer */}
-      <div className="h-6 px-3 bg-black/60 border-t border-zinc-800 flex items-center justify-between text-[10px] font-mono text-zinc-500">
-        <div>{entryPoint}</div>
-        <div>{folderName}</div>
-      </div>
+      {/* Footer omitted for compact plugins to avoid unused bottom space */}
+      {!isObsShortcuts && (
+        <div className="h-6 px-3 bg-zinc-950/60 border-t border-zinc-800 flex items-center justify-between text-[10px] font-mono text-zinc-400">
+          <div>{entryPoint}</div>
+          <div>{folderName}</div>
+        </div>
+      )}
     </div>
   );
 };
 
-/* --- MONOCHROMATIC WIDGET COMPONENTS --- */
+/* --- OBS SHORTCUTS UNIFIED GRAY WIDGET --- */
+const formatDuration = (totalSeconds: number) => {
+  const hrs = Math.floor(totalSeconds / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return hrs > 0 ? `${pad(hrs)}:${pad(mins)}:${pad(secs)}` : `${pad(mins)}:${pad(secs)}`;
+};
+
+const formatBufferDuration = (seconds: number) => {
+  const s = Math.max(1, Math.round(seconds || 30));
+  if (s >= 60 && s % 60 === 0) return `${s / 60}m`;
+  if (s > 60) return `${Math.floor(s / 60)}m ${s % 60}s`;
+  return `${s}s`;
+};
+
+const ObsShortcutsWidgetBody: React.FC<{ pluginFolder: PluginFolder }> = ({ pluginFolder }) => {
+  const { isOverlayOpen, executeIntent } = useApp();
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [isReplayActive, setIsReplayActive] = useState(false);
+  const [isSavingReplay, setIsSavingReplay] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+
+  const replayBufferDurationSec = Number(
+    pluginFolder.metadata.settings?.replay_buffer_fallback_sec ?? 30
+  );
+  const obsExePath = String(
+    pluginFolder.metadata.settings?.obs_exe_path ??
+      'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe'
+  );
+
+  // Real-time update loop strictly ONLY while FuncOverlay is open (zero background running)
+  useEffect(() => {
+    if (!isOverlayOpen || !isRecording) return;
+    const timer = setInterval(() => {
+      setRecordSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isOverlayOpen, isRecording]);
+
+  const handleSaveReplay = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (!isReplayActive || isSavingReplay) return;
+    setIsSavingReplay(true);
+    setTimeout(() => {
+      setIsSavingReplay(false);
+    }, 1800);
+  };
+
+  const handleToggleRecord = () => {
+    setIsRecording((prev) => {
+      if (prev) setRecordSeconds(0);
+      return !prev;
+    });
+  };
+
+  const handleOpenObs = () => {
+    executeIntent('system.launch_app', { path: obsExePath }, pluginFolder.metadata.id);
+    executeIntent('overlay.close', {}, pluginFolder.metadata.id);
+  };
+
+  const hasAnyStatus = isRecording || isReplayActive || isStreaming;
+  const replayColor = isSavingReplay ? '#111b4f' : '#015637';
+
+  return (
+    <div className="flex flex-col">
+      {/* 4 Gray Buttons in a Row */}
+      <div className="grid grid-cols-4 gap-1.5">
+        {/* 1. Start / Stop Recording */}
+        <button
+          type="button"
+          onClick={handleToggleRecord}
+          title={isRecording ? 'Stop Recording' : 'Start Recording'}
+          className={`h-9 rounded-lg bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border transition-colors flex items-center justify-center cursor-pointer ${
+            isRecording ? 'border-zinc-500' : 'border-zinc-700'
+          }`}
+        >
+          <span
+            className={`w-2.5 h-2.5 rounded-full transition-opacity ${
+              isRecording ? 'animate-pulse' : ''
+            }`}
+            style={{ backgroundColor: '#6a010e' }}
+          />
+        </button>
+
+        {/* 2. Start / Stop Replay Buffer (Right-click or Shift+click to Save Replay -> turns blue #111b4f) */}
+        <button
+          type="button"
+          onClick={(e) => {
+            if (e.shiftKey && isReplayActive) {
+              handleSaveReplay(e);
+              return;
+            }
+            setIsReplayActive((prev) => !prev);
+          }}
+          onContextMenu={(e) => {
+            if (isReplayActive) {
+              handleSaveReplay(e);
+            } else {
+              e.preventDefault();
+            }
+          }}
+          title={
+            isReplayActive
+              ? 'Stop Replay Buffer (Right-click or Shift+Click to Save)'
+              : 'Start Replay Buffer'
+          }
+          className={`h-9 rounded-lg bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border transition-colors flex items-center justify-center cursor-pointer ${
+            isReplayActive ? 'border-zinc-500' : 'border-zinc-700'
+          }`}
+        >
+          <span
+            className={`w-2.5 h-2.5 rounded-full transition-colors ${
+              isReplayActive && !isSavingReplay ? 'animate-pulse' : ''
+            }`}
+            style={{ backgroundColor: replayColor }}
+          />
+        </button>
+
+        {/* 3. Start / Stop Broadcast */}
+        <button
+          type="button"
+          onClick={() => setIsStreaming((prev) => !prev)}
+          title={isStreaming ? 'Stop Broadcast' : 'Start Broadcast'}
+          className={`h-9 rounded-lg bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border transition-colors flex items-center justify-center cursor-pointer ${
+            isStreaming ? 'border-zinc-500' : 'border-zinc-700'
+          }`}
+        >
+          <span
+            className={`w-2.5 h-2.5 rounded-full transition-opacity ${
+              isStreaming ? 'animate-pulse' : ''
+            }`}
+            style={{ backgroundColor: '#340f57' }}
+          />
+        </button>
+
+        {/* 4. Open / Restore OBS (closes FuncOverlay via Intent) */}
+        <button
+          type="button"
+          onClick={handleOpenObs}
+          title="Open / Restore OBS Studio & Close FuncOverlay"
+          className="h-9 rounded-lg bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border border-zinc-700 transition-colors flex items-center justify-center cursor-pointer text-zinc-200"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Collapsible Bottom Status Strip (Zero blank space when everything is off) */}
+      {hasAnyStatus && (
+        <div className="mt-2 pt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono text-zinc-200 px-0.5">
+          {isRecording && (
+            <div className="inline-flex items-center gap-1.5">
+              <span
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ backgroundColor: '#6a010e' }}
+              />
+              <span>{formatDuration(recordSeconds)}</span>
+            </div>
+          )}
+          {isReplayActive && (
+            <div className="inline-flex items-center gap-1.5">
+              <span
+                className="w-2 h-2 rounded-full shrink-0 transition-colors"
+                style={{ backgroundColor: replayColor }}
+              />
+              <span>
+                {isSavingReplay ? 'Saving...' : formatBufferDuration(replayBufferDurationSec)}
+              </span>
+            </div>
+          )}
+          {isStreaming && (
+            <div className="inline-flex items-center gap-1.5">
+              <span
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ backgroundColor: '#340f57' }}
+              />
+              <span>Live</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* --- UNIFIED GRAY WIDGET COMPONENTS --- */
 const ClockWidgetBody: React.FC = () => {
+  const { isOverlayOpen } = useApp();
   const [time, setTime] = useState(new Date());
   useEffect(() => {
+    if (!isOverlayOpen) return;
     const timer = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isOverlayOpen]);
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center text-center">
@@ -402,11 +601,13 @@ const ClockWidgetBody: React.FC = () => {
 };
 
 const SysInfoWidgetBody: React.FC = () => {
+  const { isOverlayOpen } = useApp();
   const [cpu, setCpu] = useState(24);
   useEffect(() => {
+    if (!isOverlayOpen) return;
     const timer = setInterval(() => setCpu(Math.floor(18 + Math.random() * 25)), 2000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isOverlayOpen]);
 
   return (
     <div className="flex-1 flex flex-col justify-center space-y-3 font-mono text-xs">
@@ -417,7 +618,7 @@ const SysInfoWidgetBody: React.FC = () => {
           </span>
           <span className="text-white font-bold">{cpu}%</span>
         </div>
-        <div className="w-full h-2 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+        <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden border border-zinc-700">
           <div className="h-full bg-zinc-300 transition-all duration-500" style={{ width: `${cpu}%` }} />
         </div>
       </div>
@@ -429,13 +630,13 @@ const CustomPluginBody: React.FC<{ pluginFolder: PluginFolder }> = ({ pluginFold
   const { metadata } = pluginFolder;
   return (
     <div className="flex-1 flex flex-col justify-between text-xs font-mono text-zinc-300">
-      <div className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 space-y-1.5">
+      <div className="p-3 rounded-xl bg-zinc-800/70 border border-zinc-700 space-y-1.5">
         <div className="flex justify-between">
-          <span className="text-zinc-500">Entry File:</span>
+          <span className="text-zinc-400">Entry File:</span>
           <span className="text-white font-bold">{metadata.entryPoint}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-zinc-500">Language:</span>
+          <span className="text-zinc-400">Language:</span>
           <span className="text-zinc-200 capitalize">{metadata.language}</span>
         </div>
       </div>

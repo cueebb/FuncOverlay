@@ -347,11 +347,11 @@ export const SettingsModal: React.FC = () => {
                     {t('settings.plugins.noInstalledPlugins', { FuncOverlay_folder: '.' })}
                   </p>
                   <button
-                    onClick={() => installPluginArchive()}
+                    onClick={() => installPluginArchive('obs_shortcuts')}
                     className="bg-white text-black font-semibold hover:bg-zinc-200 transition-colors cursor-pointer rounded-lg px-3.5 py-1.5 text-xs shadow-sm inline-flex items-center gap-1.5"
                   >
                     <Package className="w-3.5 h-3.5" />
-                    <span>+ Install Example Plugin with Settings</span>
+                    <span>+ Install "obs shortcuts" Plugin</span>
                   </button>
                 </div>
               ) : (

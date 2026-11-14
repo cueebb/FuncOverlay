@@ -68,6 +68,20 @@ namespace FuncOverlay
             _mainWindow?.SaveSettings();
         }
 
+        public void RefreshFromMainWindow()
+        {
+            _isInitializing = true;
+            RunOnStartupCheckBox.IsChecked = AppSettingsManager.GetRunOnStartup();
+            TransitionSlider.Value = _mainWindow.FadeDurationMs;
+            TransitionValueText.Text = $"{_mainWindow.FadeDurationMs} ms";
+            AlphaSlider.Value = Math.Round(_mainWindow.OverlayOpacity * 100);
+            AlphaValueText.Text = $"{Math.Round(_mainWindow.OverlayOpacity * 100)}%";
+            HotkeyTextBox.Text = _mainWindow.HotkeyDisplayString;
+            _isInitializing = false;
+
+            RefreshInstalledPluginsList();
+        }
+
         private void ShowToast(string message)
         {
             StatusToastText.Text = message;
@@ -499,6 +513,7 @@ namespace FuncOverlay
                         chk.Click += (s, e) =>
                         {
                             _pluginManager.UpdatePluginSetting(plugin.FolderName, def.key, chk.IsChecked == true);
+                            _mainWindow.NotifyPluginSettingsUpdated(plugin.FolderName);
                         };
                         Grid.SetColumn(chk, 1);
                         settingRow.Children.Add(chk);
@@ -517,6 +532,7 @@ namespace FuncOverlay
                             if (int.TryParse(txt.Text, out int parsed))
                             {
                                 _pluginManager.UpdatePluginSetting(plugin.FolderName, def.key, parsed);
+                                _mainWindow.NotifyPluginSettingsUpdated(plugin.FolderName);
                             }
                         };
                         Grid.SetColumn(txt, 1);
@@ -536,6 +552,7 @@ namespace FuncOverlay
                             if (cb.SelectedItem != null)
                             {
                                 _pluginManager.UpdatePluginSetting(plugin.FolderName, def.key, cb.SelectedItem.ToString()!);
+                                _mainWindow.NotifyPluginSettingsUpdated(plugin.FolderName);
                             }
                         };
                         Grid.SetColumn(cb, 1);
@@ -552,6 +569,7 @@ namespace FuncOverlay
                         txt.TextChanged += (s, e) =>
                         {
                             _pluginManager.UpdatePluginSetting(plugin.FolderName, def.key, txt.Text ?? "");
+                            _mainWindow.NotifyPluginSettingsUpdated(plugin.FolderName);
                         };
                         Grid.SetColumn(txt, 1);
                         settingRow.Children.Add(txt);

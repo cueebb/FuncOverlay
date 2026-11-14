@@ -38,12 +38,14 @@ interface AppContextType {
   togglePluginEnabled: (id: string) => void;
   deletePlugin: (id: string) => void;
   addSamplePlugin: (widgetType: 'clock' | 'sysinfo' | 'notes' | 'volume', language?: 'python' | 'csharp') => void;
+  addObsShortcutsPlugin: () => void;
   addCustomPluginFolder: (folderName: string, language: 'python' | 'csharp', name: string, description: string) => void;
   installPluginArchive: (pluginName?: string) => void;
   saveMetadataJsonFile: (folderName: string, jsonString: string) => boolean;
   clearAllPlugins: () => void;
   restartApp: () => void;
   showToast: (message: string) => void;
+  executeIntent: (intent: string, data?: Record<string, any>, callerPluginId?: string) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -518,12 +520,116 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast(`Installed plugin '${folderName}' (${language.toUpperCase()})`);
   }, [plugins.length, showToast]);
 
+  const addObsShortcutsPlugin = useCallback(() => {
+    const id = 'obs_shortcuts';
+    if (plugins.some((p) => p.metadata.id === id)) {
+      showToast('Plugin "obs shortcuts" is already installed');
+      return;
+    }
+
+    const schema: PluginSettingDefinition[] = [
+      {
+        key: 'obs_ws_host',
+        label: 'OBS WebSocket Host',
+        type: 'string',
+        defaultValue: '127.0.0.1',
+        value: '127.0.0.1',
+        description: 'Host address for OBS WebSocket v5 server.',
+      },
+      {
+        key: 'obs_ws_port',
+        label: 'OBS WebSocket Port',
+        type: 'int',
+        defaultValue: 4455,
+        value: 4455,
+        description: 'Port configured in OBS Tools -> WebSocket Server Settings (default: 4455).',
+      },
+      {
+        key: 'obs_ws_password',
+        label: 'OBS WebSocket Password',
+        type: 'string',
+        defaultValue: '',
+        value: '',
+        description: 'Optional OBS WebSocket authentication password.',
+      },
+      {
+        key: 'obs_exe_path',
+        label: 'OBS Executable Path',
+        type: 'string',
+        defaultValue: 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe',
+        value: 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe',
+        description: 'Path used to launch or restore OBS Studio.',
+      },
+      {
+        key: 'replay_buffer_fallback_sec',
+        label: 'Fallback Replay Duration (sec)',
+        type: 'int',
+        defaultValue: 30,
+        value: 30,
+        description: 'Used if OBS profile Basic.ini replay duration cannot be read.',
+      },
+    ];
+
+    const settingsMap = schema.reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {} as Record<string, any>);
+
+    const metadata: PluginMetadata = {
+      id,
+      name: 'obs shortcuts',
+      description: 'Compact OBS Studio status bar with recording, replay buffer, broadcast controls and quick OBS restore.',
+      version: '1.0.0',
+      author: 'FuncOverlay',
+      entryPoint: 'main.py',
+      language: 'python',
+      position: { x: 80, y: 80 },
+      size: { width: 252, height: 96 },
+      enabled: true,
+      widgetType: 'obs_shortcuts',
+      settingsSchema: schema,
+      settings: settingsMap,
+    };
+
+    const mainPySnippet = `# main.py - obs shortcuts (Python Plugin)\n# Runs ONLY while FuncOverlay overlay is open (stdin/stdout IPC).\n# Connects to OBS WebSocket v5 and reads RecRBTime from OBS Basic.ini.\nimport sys, json\n\nDOT_RECORD = "#6a010e"\nDOT_REPLAY = "#015637"\nDOT_REPLAY_SAVING = "#111b4f"\nDOT_STREAM = "#340f57"\n\n# On Open/Restore OBS button click:\n# send_intent("system.launch_app", {"path": obs_exe_path})\n# send_intent("overlay.close")\n`;
+
+    const newFolder: PluginFolder = {
+      folderName: 'obs_shortcuts',
+      path: 'plugins/obs_shortcuts',
+      metadata,
+      hasMainPy: true,
+      hasPluginDll: false,
+      files: [
+        {
+          name: 'metadata.json',
+          path: 'plugins/obs_shortcuts/metadata.json',
+          content: JSON.stringify(metadata, null, 2),
+          isMetadata: true,
+        },
+        {
+          name: 'main.py',
+          path: 'plugins/obs_shortcuts/main.py',
+          content: mainPySnippet,
+        },
+      ],
+    };
+
+    setPlugins((prev) => {
+      const updated = [...prev, newFolder];
+      localStorage.setItem(STORAGE_KEY_PLUGINS, JSON.stringify(updated));
+      return updated;
+    });
+
+    showToast('Installed "obs shortcuts" into ./plugins/obs_shortcuts');
+  }, [plugins, showToast]);
+
   // Install Plugin from directory or extracted from .zip archive
-  const installPluginArchive = useCallback((pluginName: string = 'SampleWidget') => {
+  const installPluginArchive = useCallback((_pluginName: string = 'obs_shortcuts') => {
+    if (!plugins.some((p) => p.metadata.id === 'obs_shortcuts')) {
+      addObsShortcutsPlugin();
+      return;
+    }
     const types: ('clock' | 'sysinfo' | 'notes')[] = ['clock', 'sysinfo', 'notes'];
     const chosen = types[plugins.length % types.length];
     addSamplePlugin(chosen, plugins.length % 2 === 0 ? 'python' : 'csharp');
-  }, [addSamplePlugin, plugins.length]);
+  }, [addObsShortcutsPlugin, addSamplePlugin, plugins]);
 
   const addCustomPluginFolder = useCallback((folderName: string, language: 'python' | 'csharp', name: string, description: string) => {
     const cleanFolderName = folderName.replace(/[^a-zA-Z0-9_-]/g, '') || 'NewPlugin';
@@ -660,6 +766,79 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 500);
   }, [showToast]);
 
+  // Deep Integration Intents Dispatcher (mirrors native C# PluginIntentRouter)
+  const executeIntent = useCallback(
+    (intent: string, data: Record<string, any> = {}, callerPluginId?: string) => {
+      const normalized = intent.trim().toLowerCase();
+      switch (normalized) {
+        case 'overlay.close':
+        case 'overlay.hide':
+          setOverlayOpen(false);
+          break;
+        case 'overlay.open':
+        case 'overlay.show':
+          setOverlayOpen(true);
+          break;
+        case 'overlay.toggle':
+          toggleOverlay();
+          break;
+        case 'settings.open':
+          openSettings((data.tab as any) || 'general');
+          break;
+        case 'settings.update':
+          if (typeof data.fadeDurationMs === 'number') setFadeDurationMs(data.fadeDurationMs);
+          if (typeof data.overlayOpacity === 'number') {
+            setOverlayOpacity(data.overlayOpacity > 1 ? data.overlayOpacity / 100 : data.overlayOpacity);
+          }
+          if (typeof data.runOnStartup === 'boolean') setRunOnStartup(data.runOnStartup);
+          break;
+        case 'plugin.set_enabled': {
+          const targetId = (data.pluginId as string) || callerPluginId;
+          if (targetId) togglePluginEnabled(targetId);
+          break;
+        }
+        case 'plugin.update_setting': {
+          const targetId = (data.pluginId as string) || callerPluginId;
+          if (targetId && typeof data.key === 'string') {
+            updatePluginSetting(targetId, data.key, data.value);
+          }
+          break;
+        }
+        case 'plugin.move': {
+          const targetId = (data.pluginId as string) || callerPluginId;
+          if (targetId && typeof data.x === 'number' && typeof data.y === 'number') {
+            updatePluginPosition(targetId, data.x, data.y);
+          }
+          break;
+        }
+        case 'system.launch_app':
+          showToast(`Launching / Restoring: ${data.path || 'Application'}`);
+          break;
+        case 'app.toast':
+          if (typeof data.message === 'string') showToast(data.message);
+          break;
+        case 'app.reload_plugins':
+          restartApp();
+          break;
+        default:
+          break;
+      }
+    },
+    [
+      openSettings,
+      restartApp,
+      setFadeDurationMs,
+      setOverlayOpacity,
+      setOverlayOpen,
+      setRunOnStartup,
+      showToast,
+      toggleOverlay,
+      togglePluginEnabled,
+      updatePluginPosition,
+      updatePluginSetting,
+    ]
+  );
+
   return (
     <AppContext.Provider
       value={{
@@ -699,12 +878,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         togglePluginEnabled,
         deletePlugin,
         addSamplePlugin,
+        addObsShortcutsPlugin,
         addCustomPluginFolder,
         installPluginArchive,
         saveMetadataJsonFile,
         clearAllPlugins,
         restartApp,
         showToast,
+        executeIntent,
       }}
     >
       {children}

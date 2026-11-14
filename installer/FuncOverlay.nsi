@@ -50,10 +50,10 @@ Section "MainSection" SEC01
   SetOutPath "$INSTDIR"
   SetOverwrite ifnewer
 
-  ; Copy all published .NET 8 application binaries and dependencies
-  File /r "..\publish\*.*"
+  ; Copy all published .NET 8 application binaries and dependencies (explicitly skipping any plugins directory)
+  File /r /x plugins "..\publish\*.*"
 
-  ; Create the required plugins directory: {FuncOverlay_folder}\plugins
+  ; Create the empty user plugins directory: {FuncOverlay_folder}\plugins
   CreateDirectory "$INSTDIR\plugins"
 
   ; Create explanatory README inside plugins folder

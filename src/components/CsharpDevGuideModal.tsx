@@ -5,7 +5,7 @@ import { Terminal, Copy, Check, X } from 'lucide-react';
 
 export const CsharpDevGuideModal: React.FC = () => {
   const { isCsharpSpecOpen, closeCsharpSpec, showToast } = useApp();
-  const [activeSnippet, setActiveSnippet] = useState<'workflow' | 'nsis' | 'app' | 'settings' | 'main' | 'pluginManager' | 'tray' | 'interface'>('workflow');
+  const [activeSnippet, setActiveSnippet] = useState<'workflow' | 'nsis' | 'intents' | 'app' | 'settings' | 'main' | 'pluginManager' | 'tray' | 'interface'>('workflow');
   const [copied, setCopied] = useState(false);
 
   if (!isCsharpSpecOpen) return null;
@@ -51,6 +51,12 @@ jobs:
           -p:PublishSingleFile=false
           -o ./publish
 
+      - name: Ensure Repo Plugins Folder Is Skipped
+        run: |
+          if (Test-Path "./publish/plugins") {
+            Remove-Item -Path "./publish/plugins" -Recurse -Force
+          }
+
       - name: Install Nullsoft Scriptable Install System (NSIS)
         run: choco install nsis -y
 
@@ -72,7 +78,7 @@ jobs:
     nsis: `; =========================================================================
 ; installer/FuncOverlay.nsi
 ; Nullsoft Scriptable Install System (NSIS) Script for FuncOverlay
-; Generates: FuncOverlay-Setup-x64.exe with {FuncOverlay_folder}\\plugins directory
+; Generates: FuncOverlay-Setup-x64.exe with empty {FuncOverlay_folder}\\plugins directory
 ; =========================================================================
 
 !define PRODUCT_NAME "FuncOverlay"
@@ -116,10 +122,10 @@ Section "MainSection" SEC01
   SetOutPath "$INSTDIR"
   SetOverwrite ifnewer
 
-  ; Copy all published C# binaries and runtime dependencies
-  File /r "..\\publish\\*.*"
+  ; Copy all published C# binaries and runtime dependencies (explicitly skipping any plugins directory)
+  File /r /x plugins "..\\publish\\*.*"
 
-  ; Create the plugins folder: {FuncOverlay_folder}\\plugins\\
+  ; Create the empty plugins folder: {FuncOverlay_folder}\\plugins\\
   CreateDirectory "$INSTDIR\\plugins"
 
   ; Readme inside plugins folder
@@ -164,6 +170,16 @@ Section Uninstall
   DeleteRegKey \${PRODUCT_UNINST_ROOT_KEY} "\${PRODUCT_UNINST_KEY}"
   DeleteRegKey \${PRODUCT_UNINST_ROOT_KEY} "\${PRODUCT_DIR_REGKEY}"
 SectionEnd`,
+
+    intents: `// =========================================================================
+// FuncOverlay/Core/PluginIntentRouter.cs & PluginHostService.cs
+// Deep Integration Intents emitted by plugins over stdout JSON lines:
+//   - overlay.close / overlay.open / overlay.toggle
+//   - settings.open / settings.update
+//   - plugin.set_enabled / plugin.update_setting / plugin.move
+//   - system.launch_app / app.toast / app.reload_plugins / app.quit
+// Python plugins run strictly while FuncOverlay is open (killed on close).
+// =========================================================================`,
 
     app: `// =========================================================================
 // FuncOverlay - App.xaml.cs & FuncOverlay.csproj
@@ -507,6 +523,16 @@ namespace FuncOverlay.Sdk
               }`}
             >
               FuncOverlay.nsi (NSIS)
+            </button>
+            <button
+              onClick={() => setActiveSnippet('intents')}
+              className={`px-2.5 py-1.5 rounded-t transition-colors cursor-pointer whitespace-nowrap ${
+                activeSnippet === 'intents'
+                  ? 'bg-zinc-900 text-white font-bold border-t-2 border-zinc-300'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              PluginIntentRouter.cs
             </button>
             <button
               onClick={() => setActiveSnippet('app')}

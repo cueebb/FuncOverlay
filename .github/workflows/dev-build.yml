@@ -33,6 +33,12 @@ jobs:
           -p:PublishSingleFile=false
           -o ./publish
 
+      - name: Ensure Repo Plugins Folder Is Skipped
+        run: |
+          if (Test-Path "./publish/plugins") {
+            Remove-Item -Path "./publish/plugins" -Recurse -Force
+          }
+
       - name: Install Nullsoft Scriptable Install System (NSIS)
         run: choco install nsis -y
 

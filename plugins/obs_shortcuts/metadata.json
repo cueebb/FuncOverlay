@@ -1,0 +1,68 @@
+{
+  "id": "obs_shortcuts",
+  "name": "obs shortcuts",
+  "description": "Compact OBS Studio status bar with recording, replay buffer, broadcast controls and quick OBS restore.",
+  "version": "1.0.0",
+  "author": "FuncOverlay",
+  "entryPoint": "main.py",
+  "language": "python",
+  "position": {
+    "x": 80,
+    "y": 80
+  },
+  "size": {
+    "width": 252,
+    "height": 96
+  },
+  "enabled": true,
+  "widgetType": "obs_shortcuts",
+  "settingsSchema": [
+    {
+      "key": "obs_ws_host",
+      "label": "OBS WebSocket Host",
+      "type": "string",
+      "defaultValue": "127.0.0.1",
+      "value": "127.0.0.1",
+      "description": "Host address for OBS WebSocket v5 server."
+    },
+    {
+      "key": "obs_ws_port",
+      "label": "OBS WebSocket Port",
+      "type": "int",
+      "defaultValue": 4455,
+      "value": 4455,
+      "description": "Port configured in OBS Tools -> WebSocket Server Settings (default: 4455)."
+    },
+    {
+      "key": "obs_ws_password",
+      "label": "OBS WebSocket Password",
+      "type": "string",
+      "defaultValue": "",
+      "value": "",
+      "description": "Optional OBS WebSocket authentication password."
+    },
+    {
+      "key": "obs_exe_path",
+      "label": "OBS Executable Path",
+      "type": "string",
+      "defaultValue": "C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe",
+      "value": "C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe",
+      "description": "Path used to launch or restore OBS Studio."
+    },
+    {
+      "key": "replay_buffer_fallback_sec",
+      "label": "Fallback Replay Duration (sec)",
+      "type": "int",
+      "defaultValue": 30,
+      "value": 30,
+      "description": "Used if OBS profile Basic.ini replay duration cannot be read."
+    }
+  ],
+  "settings": {
+    "obs_ws_host": "127.0.0.1",
+    "obs_ws_port": 4455,
+    "obs_ws_password": "",
+    "obs_exe_path": "C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe",
+    "replay_buffer_fallback_sec": 30
+  }
+}

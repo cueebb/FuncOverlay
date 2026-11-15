@@ -15,6 +15,7 @@ using FuncOverlay.Tray;
 
 using MediaColor = System.Windows.Media.Color;
 using MediaColorConverter = System.Windows.Media.ColorConverter;
+using MediaBrush = System.Windows.Media.Brush;
 using MediaBrushes = System.Windows.Media.Brushes;
 using MediaFontFamily = System.Windows.Media.FontFamily;
 
@@ -554,10 +555,14 @@ namespace FuncOverlay
                                   string.Equals(plugin.id, "obs_shortcuts", StringComparison.OrdinalIgnoreCase);
             bool isSimpleCalc = string.Equals(plugin.widgetType, "simple_calc", StringComparison.OrdinalIgnoreCase) ||
                                 string.Equals(plugin.id, "simple_calc", StringComparison.OrdinalIgnoreCase);
+            bool isShareXShortcuts = string.Equals(plugin.widgetType, "sharex_shortcuts", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(plugin.id, "sharex_shortcuts", StringComparison.OrdinalIgnoreCase);
+            bool isPowerToysShortcuts = string.Equals(plugin.widgetType, "powertoys_shortcuts", StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(plugin.id, "powertoys_shortcuts", StringComparison.OrdinalIgnoreCase);
 
             double width = plugin.size.width >= 180
                 ? plugin.size.width
-                : (isObsShortcuts ? 252 : (isSimpleCalc ? 256 : 300));
+                : (isObsShortcuts ? 252 : (isSimpleCalc ? 256 : ((isShareXShortcuts || isPowerToysShortcuts) ? 296 : 300)));
 
             // Unified Gray Plugin Style
             Border card = new Border
@@ -701,6 +706,14 @@ namespace FuncOverlay
             {
                 bodyHost.Child = BuildInteractiveGrayPluginBody(plugin.id, CreateDefaultSimpleCalcPayload());
             }
+            else if (isShareXShortcuts)
+            {
+                bodyHost.Child = BuildInteractiveGrayPluginBody(plugin.id, CreateDefaultShareXShortcutsPayload());
+            }
+            else if (isPowerToysShortcuts)
+            {
+                bodyHost.Child = BuildInteractiveGrayPluginBody(plugin.id, CreateDefaultPowerToysShortcutsPayload());
+            }
             else
             {
                 StackPanel fallbackBody = new StackPanel();
@@ -739,6 +752,134 @@ namespace FuncOverlay
                     new PluginRenderButton { id = "toggle_replay", secondaryAction = "save_replay", dotColor = "#015637", tooltip = "Start Replay Buffer (Right-click to Save)" },
                     new PluginRenderButton { id = "toggle_stream", dotColor = "#340f57", tooltip = "Start Broadcast" },
                     new PluginRenderButton { id = "open_obs", icon = "external_app", tooltip = "Open / Restore OBS Studio" }
+                },
+                statusItems = new List<PluginStatusItem>()
+            };
+        }
+
+        private static PluginRenderPayload CreateDefaultShareXShortcutsPayload()
+        {
+            return new PluginRenderPayload
+            {
+                type = "render",
+                style = "gray",
+                buttons = new List<PluginRenderButton>
+                {
+                    new PluginRenderButton
+                    {
+                        id = "capture_region",
+                        tooltip = "Capture Region (Screenshot)",
+                        iconPaths = new List<string>
+                        {
+                            "M4,8 V5 A1,1 0 0 1 5,4 H8 M12,4 H14 M18,4 H19 A1,1 0 0 1 20,5 V8 M4,12 V14 M4,18 V19 A1,1 0 0 0 5,20 H8",
+                            "M12.5,12.5 L15.2,21 L17.1,17.6 L20.5,15.7 Z"
+                        }
+                    },
+                    new PluginRenderButton
+                    {
+                        id = "scrolling_capture",
+                        tooltip = "Scrolling Capture",
+                        iconPaths = new List<string>
+                        {
+                            "M12,3.5 V20.5",
+                            "M7.5,8 L12,3.5 L16.5,8",
+                            "M7.5,16 L12,20.5 L16.5,16"
+                        }
+                    },
+                    new PluginRenderButton
+                    {
+                        id = "scan_qr",
+                        tooltip = "Scan QR Code (Region)",
+                        iconPaths = new List<string>
+                        {
+                            "M3.5,3.5 H9.5 V9.5 H3.5 Z M14.5,3.5 H20.5 V9.5 H14.5 Z M3.5,14.5 H9.5 V20.5 H3.5 Z",
+                            "M6.5,6.5 L6.55,6.5 M17.5,6.5 L17.55,6.5 M6.5,17.5 L6.55,17.5",
+                            "M12,4 V7 M12,11 V13 M15,12 H18 M12,16 H15 V19.5 M18.5,14.5 V20 H20.5"
+                        }
+                    },
+                    new PluginRenderButton
+                    {
+                        id = "open_folder",
+                        tooltip = "Open Screenshots Folder",
+                        iconPaths = new List<string>
+                        {
+                            "M3,7.5 A2,2 0 0 1 5,5.5 H9.5 L11.5,7.8 H19 A2,2 0 0 1 21,9.8 V17.5 A2,2 0 0 1 19,19.5 H5 A2,2 0 0 1 3,17.5 Z"
+                        }
+                    },
+                    new PluginRenderButton
+                    {
+                        id = "restore_sharex",
+                        tooltip = "Open / Restore ShareX",
+                        icon = "external_app",
+                        iconPaths = new List<string>
+                        {
+                            "M14,4 H20 V10 M20,4 L11,13 M18,14 V19 A2,2 0 0 1 16,21 H5 A2,2 0 0 1 3,19 V8 A2,2 0 0 1 5,6 H10"
+                        }
+                    }
+                },
+                statusItems = new List<PluginStatusItem>()
+            };
+        }
+
+        private static PluginRenderPayload CreateDefaultPowerToysShortcutsPayload()
+        {
+            return new PluginRenderPayload
+            {
+                type = "render",
+                style = "gray",
+                buttons = new List<PluginRenderButton>
+                {
+                    new PluginRenderButton
+                    {
+                        id = "color_picker",
+                        tooltip = "Color Picker",
+                        iconPaths = new List<string>
+                        {
+                            "M5,19 L5.8,15.2 L14.5,6.5 L17.5,9.5 L8.8,18.2 Z",
+                            "M13,5 L19,11",
+                            "M15.2,5.8 L17,4 A2.1,2.1 0 0 1 20,7 L18.2,8.8"
+                        }
+                    },
+                    new PluginRenderButton
+                    {
+                        id = "text_extractor",
+                        tooltip = "Text Extractor (OCR)",
+                        iconPaths = new List<string>
+                        {
+                            "M5,5 H19 M12,5 V19 M5,5 V7.2 M19,5 V7.2 M9.5,19 H14.5"
+                        }
+                    },
+                    new PluginRenderButton
+                    {
+                        id = "always_on_top",
+                        tooltip = "Toggle Always on Top (Last Active App)",
+                        iconPaths = new List<string>
+                        {
+                            "M9,14 V19 A1,1 0 0 0 10,20 H19 A1,1 0 0 0 20,19 V10 A1,1 0 0 0 19,9 H14",
+                            "M4,5 A1,1 0 0 1 5,4 H13 A1,1 0 0 1 14,5 V13 A1,1 0 0 1 13,14 H5 A1,1 0 0 1 4,13 Z"
+                        }
+                    },
+                    new PluginRenderButton
+                    {
+                        id = "screen_ruler",
+                        tooltip = "Screen Ruler",
+                        iconPaths = new List<string>
+                        {
+                            "M3,8 A1,1 0 0 1 4,7 H20 A1,1 0 0 1 21,8 V16 A1,1 0 0 1 20,17 H4 A1,1 0 0 1 3,16 Z",
+                            "M7,7 V11.5 M10.5,7 V10 M14,7 V11.5 M17.5,7 V10"
+                        }
+                    },
+                    new PluginRenderButton
+                    {
+                        id = "crop_and_lock",
+                        tooltip = "Crop and Lock (Screenshot)",
+                        iconPaths = new List<string>
+                        {
+                            "M3.5,5.5 A1.5,1.5 0 0 1 5,4 H19 A1.5,1.5 0 0 1 20.5,5.5 V18.5 A1.5,1.5 0 0 1 19,20 H5 A1.5,1.5 0 0 1 3.5,18.5 Z",
+                            "M4,16.5 L9.5,11.5 L13,15 L15.5,12.5 L20,17.5",
+                            "M14.6,8.2 A1.4,1.4 0 1 0 17.4,8.2 A1.4,1.4 0 1 0 14.6,8.2 Z"
+                        }
+                    }
                 },
                 statusItems = new List<PluginStatusItem>()
             };
@@ -1069,53 +1210,31 @@ namespace FuncOverlay
                 Cursor = System.Windows.Input.Cursors.Hand
             };
 
-            if (string.Equals(btn.icon, "sqrt", StringComparison.OrdinalIgnoreCase))
+            if (btn.iconPaths != null && btn.iconPaths.Count > 0)
+            {
+                circle.Child = BuildVectorIconElement(
+                    btn.iconPaths,
+                    ParseHexBrush(btn.iconColor, fgColor),
+                    btn.iconStrokeWidth ?? 1.8,
+                    size: 19);
+            }
+            else if (string.Equals(btn.icon, "sqrt", StringComparison.OrdinalIgnoreCase))
             {
                 // Sleek geometric square root vector glyph (clean tick + V + top vinculum)
-                Viewbox iconBox = new Viewbox
-                {
-                    Width = 19,
-                    Height = 19,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                Canvas iconCanvas = new Canvas { Width = 24, Height = 24 };
-                System.Windows.Shapes.Path sqrtPath = new System.Windows.Shapes.Path
-                {
-                    Stroke = fgBrush,
-                    StrokeThickness = 1.9,
-                    StrokeStartLineCap = PenLineCap.Round,
-                    StrokeEndLineCap = PenLineCap.Round,
-                    StrokeLineJoin = PenLineJoin.Round,
-                    Data = Geometry.Parse("M3,13.5 L6.2,13.5 L9.8,19.5 L14,5.5 L21,5.5")
-                };
-                iconCanvas.Children.Add(sqrtPath);
-                iconBox.Child = iconCanvas;
-                circle.Child = iconBox;
+                circle.Child = BuildVectorIconElement(
+                    new[] { "M3,13.5 L6.2,13.5 L9.8,19.5 L14,5.5 L21,5.5" },
+                    fgBrush,
+                    1.9,
+                    size: 19);
             }
             else if (string.Equals(btn.icon, "backspace", StringComparison.OrdinalIgnoreCase))
             {
                 // Clean backspace pentagon + X glyph
-                Viewbox iconBox = new Viewbox
-                {
-                    Width = 19,
-                    Height = 19,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                Canvas iconCanvas = new Canvas { Width = 24, Height = 24 };
-                System.Windows.Shapes.Path bsPath = new System.Windows.Shapes.Path
-                {
-                    Stroke = fgBrush,
-                    StrokeThickness = 1.75,
-                    StrokeStartLineCap = PenLineCap.Round,
-                    StrokeEndLineCap = PenLineCap.Round,
-                    StrokeLineJoin = PenLineJoin.Round,
-                    Data = Geometry.Parse("M20,6 H9.5 L4,12 L9.5,18 H20 A2,2 0 0 0 22,16 V8 A2,2 0 0 0 20,6 Z M12.2,9.8 L16.8,14.2 M16.8,9.8 L12.2,14.2")
-                };
-                iconCanvas.Children.Add(bsPath);
-                iconBox.Child = iconCanvas;
-                circle.Child = iconBox;
+                circle.Child = BuildVectorIconElement(
+                    new[] { "M20,6 H9.5 L4,12 L9.5,18 H20 A2,2 0 0 0 22,16 V8 A2,2 0 0 0 20,6 Z M12.2,9.8 L16.8,14.2 M16.8,9.8 L12.2,14.2" },
+                    fgBrush,
+                    1.75,
+                    size: 19);
             }
             else
             {
@@ -1178,29 +1297,30 @@ namespace FuncOverlay
                 }
             };
 
-            if (string.Equals(btn.icon, "external_app", StringComparison.OrdinalIgnoreCase))
+            if (btn.iconPaths != null && btn.iconPaths.Count > 0)
+            {
+                buttonBox.Child = BuildVectorIconElement(
+                    btn.iconPaths,
+                    ParseHexBrush(btn.iconColor, MediaColor.FromRgb(228, 228, 231)),
+                    btn.iconStrokeWidth ?? 1.8,
+                    size: 16);
+            }
+            else if (string.Equals(btn.icon, "external_app", StringComparison.OrdinalIgnoreCase))
             {
                 // Vector "Open Another App" icon (box + diagonal launch arrow)
-                Viewbox iconBox = new Viewbox
-                {
-                    Width = 15,
-                    Height = 15,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                Canvas iconCanvas = new Canvas { Width = 24, Height = 24 };
-                System.Windows.Shapes.Path openPath = new System.Windows.Shapes.Path
-                {
-                    Stroke = new SolidColorBrush(MediaColor.FromRgb(228, 228, 231)),
-                    StrokeThickness = 2.0,
-                    StrokeStartLineCap = PenLineCap.Round,
-                    StrokeEndLineCap = PenLineCap.Round,
-                    StrokeLineJoin = PenLineJoin.Round,
-                    Data = Geometry.Parse("M14,4 H20 V10 M20,4 L11,13 M18,14 V19 A2,2 0 0 1 16,21 H5 A2,2 0 0 1 3,19 V8 A2,2 0 0 1 5,6 H10")
-                };
-                iconCanvas.Children.Add(openPath);
-                iconBox.Child = iconCanvas;
-                buttonBox.Child = iconBox;
+                buttonBox.Child = BuildVectorIconElement(
+                    new[] { "M14,4 H20 V10 M20,4 L11,13 M18,14 V19 A2,2 0 0 1 16,21 H5 A2,2 0 0 1 3,19 V8 A2,2 0 0 1 5,6 H10" },
+                    new SolidColorBrush(MediaColor.FromRgb(228, 228, 231)),
+                    2.0,
+                    size: 15);
+            }
+            else if (TryGetNamedButtonIconPaths(btn.icon, out string[] namedPaths))
+            {
+                buttonBox.Child = BuildVectorIconElement(
+                    namedPaths,
+                    ParseHexBrush(btn.iconColor, MediaColor.FromRgb(228, 228, 231)),
+                    btn.iconStrokeWidth ?? 1.8,
+                    size: 16);
             }
             else
             {
@@ -1281,6 +1401,133 @@ namespace FuncOverlay
                 ? _pluginHostService.LastStartupIssue
                 : "Plugin process is not running. Check %LocalAppData%\\FuncOverlay\\plugin_host.log";
             ShowOverlayToast(reason, 4500);
+        }
+
+        private static UIElement BuildVectorIconElement(
+            IEnumerable<string> pathDataList,
+            MediaBrush strokeBrush,
+            double strokeThickness,
+            double size = 16)
+        {
+            Viewbox iconBox = new Viewbox
+            {
+                Width = size,
+                Height = size,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Canvas iconCanvas = new Canvas { Width = 24, Height = 24 };
+            double clampedThickness = Math.Clamp(strokeThickness, 0.8, 4.0);
+
+            foreach (string rawData in pathDataList)
+            {
+                if (string.IsNullOrWhiteSpace(rawData)) continue;
+                try
+                {
+                    Geometry geom = Geometry.Parse(rawData.Trim());
+                    iconCanvas.Children.Add(new System.Windows.Shapes.Path
+                    {
+                        Stroke = strokeBrush,
+                        StrokeThickness = clampedThickness,
+                        StrokeStartLineCap = PenLineCap.Round,
+                        StrokeEndLineCap = PenLineCap.Round,
+                        StrokeLineJoin = PenLineJoin.Round,
+                        Data = geom
+                    });
+                }
+                catch { }
+            }
+
+            iconBox.Child = iconCanvas;
+            return iconBox;
+        }
+
+        private static bool TryGetNamedButtonIconPaths(string? iconName, out string[] paths)
+        {
+            switch ((iconName ?? string.Empty).Trim().ToLowerInvariant())
+            {
+                case "capture_region":
+                    paths = new[]
+                    {
+                        "M4,8 V5 A1,1 0 0 1 5,4 H8 M12,4 H14 M18,4 H19 A1,1 0 0 1 20,5 V8 M4,12 V14 M4,18 V19 A1,1 0 0 0 5,20 H8",
+                        "M12.5,12.5 L15.2,21 L17.1,17.6 L20.5,15.7 Z"
+                    };
+                    return true;
+                case "scrolling_capture":
+                    paths = new[]
+                    {
+                        "M12,3.5 V20.5",
+                        "M7.5,8 L12,3.5 L16.5,8",
+                        "M7.5,16 L12,20.5 L16.5,16"
+                    };
+                    return true;
+                case "scan_qr":
+                    paths = new[]
+                    {
+                        "M3.5,3.5 H9.5 V9.5 H3.5 Z M14.5,3.5 H20.5 V9.5 H14.5 Z M3.5,14.5 H9.5 V20.5 H3.5 Z",
+                        "M6.5,6.5 L6.55,6.5 M17.5,6.5 L17.55,6.5 M6.5,17.5 L6.55,17.5",
+                        "M12,4 V7 M12,11 V13 M15,12 H18 M12,16 H15 V19.5 M18.5,14.5 V20 H20.5"
+                    };
+                    return true;
+                case "open_folder":
+                case "folder":
+                    paths = new[]
+                    {
+                        "M3,7.5 A2,2 0 0 1 5,5.5 H9.5 L11.5,7.8 H19 A2,2 0 0 1 21,9.8 V17.5 A2,2 0 0 1 19,19.5 H5 A2,2 0 0 1 3,17.5 Z"
+                    };
+                    return true;
+                case "restore_sharex":
+                case "maximize_sharex":
+                case "maximize":
+                    paths = new[]
+                    {
+                        "M4,9 V4.5 A0.5,0.5 0 0 1 4.5,4 H9 M15,4 H19.5 A0.5,0.5 0 0 1 20,4.5 V9",
+                        "M4,15 V19.5 A0.5,0.5 0 0 0 4.5,20 H9 M15,20 H19.5 A0.5,0.5 0 0 0 20,19.5 V15",
+                        "M8.5,8.5 H15.5 V15.5 H8.5 Z"
+                    };
+                    return true;
+                case "color_picker":
+                    paths = new[]
+                    {
+                        "M5,19 L5.8,15.2 L14.5,6.5 L17.5,9.5 L8.8,18.2 Z",
+                        "M13,5 L19,11",
+                        "M15.2,5.8 L17,4 A2.1,2.1 0 0 1 20,7 L18.2,8.8"
+                    };
+                    return true;
+                case "text_extractor":
+                    paths = new[]
+                    {
+                        "M5,5 H19 M12,5 V19 M5,5 V7.2 M19,5 V7.2 M9.5,19 H14.5"
+                    };
+                    return true;
+                case "always_on_top":
+                    paths = new[]
+                    {
+                        "M9,14 V19 A1,1 0 0 0 10,20 H19 A1,1 0 0 0 20,19 V10 A1,1 0 0 0 19,9 H14",
+                        "M4,5 A1,1 0 0 1 5,4 H13 A1,1 0 0 1 14,5 V13 A1,1 0 0 1 13,14 H5 A1,1 0 0 1 4,13 Z"
+                    };
+                    return true;
+                case "screen_ruler":
+                case "ruler":
+                    paths = new[]
+                    {
+                        "M3,8 A1,1 0 0 1 4,7 H20 A1,1 0 0 1 21,8 V16 A1,1 0 0 1 20,17 H4 A1,1 0 0 1 3,16 Z",
+                        "M7,7 V11.5 M10.5,7 V10 M14,7 V11.5 M17.5,7 V10"
+                    };
+                    return true;
+                case "crop_and_lock":
+                case "gallery":
+                    paths = new[]
+                    {
+                        "M3.5,5.5 A1.5,1.5 0 0 1 5,4 H19 A1.5,1.5 0 0 1 20.5,5.5 V18.5 A1.5,1.5 0 0 1 19,20 H5 A1.5,1.5 0 0 1 3.5,18.5 Z",
+                        "M4,16.5 L9.5,11.5 L13,15 L15.5,12.5 L20,17.5",
+                        "M14.6,8.2 A1.4,1.4 0 1 0 17.4,8.2 A1.4,1.4 0 1 0 14.6,8.2 Z"
+                    };
+                    return true;
+                default:
+                    paths = Array.Empty<string>();
+                    return false;
+            }
         }
 
         private static SolidColorBrush ParseHexBrush(string? hex, MediaColor fallback)

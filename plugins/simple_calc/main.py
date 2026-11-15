@@ -12,6 +12,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import sys
 import threading
 
@@ -363,6 +364,35 @@ def format_fraction_parts(val: CalcValue) -> dict | None:
     }
 
 
+def _comma_group_digits(int_digits: str) -> str:
+    if len(int_digits) <= 3:
+        return int_digits
+    parts: list[str] = []
+    while len(int_digits) > 3:
+        parts.append(int_digits[-3:])
+        int_digits = int_digits[:-3]
+    parts.append(int_digits)
+    return ",".join(reversed(parts))
+
+
+def format_number_str_commas(num_str: str) -> str:
+    if not num_str:
+        return num_str
+    sign = ""
+    body = num_str
+    if body[0] in ("-", "−"):
+        sign = body[0]
+        body = body[1:]
+    if "." in body:
+        int_part, dec_part = body.split(".", 1)
+        return f"{sign}{_comma_group_digits(int_part)}.{dec_part}"
+    return f"{sign}{_comma_group_digits(body)}"
+
+
+def format_expression_commas(expr: str) -> str:
+    return re.sub(r"\d+(?:\.\d*)?", lambda m: format_number_str_commas(m.group(0)), expr)
+
+
 # ---------------------------------------------------------------------------
 # Plugin State & Interactive Keypad Handling
 # ---------------------------------------------------------------------------
@@ -636,12 +666,16 @@ class SimpleCalcPlugin:
 
     def build_render_payload(self) -> dict:
         with self._lock:
+            use_commas = self._setting_bool("thousands_separator", True)
             if self.just_evaluated:
                 primary = self.result_text or "0"
                 fp = self.fraction_parts if self._setting_bool("show_fraction", True) else None
             else:
                 primary = self.expression if self.expression else "0"
                 fp = None
+
+            if use_commas and primary and primary != "Error":
+                primary = format_expression_commas(primary)
 
             secondary = ""
             frac_whole = ""
@@ -651,6 +685,13 @@ class SimpleCalcPlugin:
                 frac_whole = fp.get("whole", "")
                 frac_num = fp.get("num", "")
                 frac_den = fp.get("den", "")
+                if use_commas:
+                    if frac_whole and frac_whole != "-":
+                        frac_whole = format_number_str_commas(frac_whole)
+                    if frac_num:
+                        frac_num = format_number_str_commas(frac_num)
+                    if frac_den:
+                        frac_den = format_number_str_commas(frac_den)
                 prefix = f"{frac_whole} " if frac_whole and frac_whole != "-" else ("-" if frac_whole == "-" else "")
                 secondary = f"{prefix}{frac_num}/{frac_den}"
 

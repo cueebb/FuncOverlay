@@ -19,6 +19,9 @@ namespace FuncOverlay.Core
         public string? tooltip { get; set; }
         public string? dotColor { get; set; }
         public string? icon { get; set; }
+        public List<string>? iconPaths { get; set; }
+        public string? iconColor { get; set; }
+        public double? iconStrokeWidth { get; set; }
         public bool blinking { get; set; }
         public bool active { get; set; }
     }
@@ -45,6 +48,9 @@ namespace FuncOverlay.Core
         public string id { get; set; } = string.Empty;
         public string label { get; set; } = string.Empty;
         public string? icon { get; set; }
+        public List<string>? iconPaths { get; set; }
+        public string? iconColor { get; set; }
+        public double? iconStrokeWidth { get; set; }
         public string variant { get; set; } = "digit"; // "digit" | "operator" | "equals"
     }
 

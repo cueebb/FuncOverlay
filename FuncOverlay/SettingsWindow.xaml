@@ -3,11 +3,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="FuncOverlay Settings"
         Width="696" Height="668"
-        MinWidth="580" MinHeight="520"
+        MinWidth="520" MinHeight="440"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
-        ResizeMode="CanMinimize"
+        ResizeMode="CanResize"
         ShowInTaskbar="True"
         WindowStartupLocation="CenterScreen"
         Foreground="#FFFFFFFF"
@@ -419,54 +419,57 @@
             </Border.Effect>
 
             <Grid>
-                <!-- Main Settings Layout -->
-                <Grid Margin="28,24,28,24">
+                <!-- Main Settings Layout: Row 0 stretches edge-to-edge up to the very top border for full upper drag -->
+                <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <!-- Entire Top Header Is Draggable + Upper-Right ONLY Minimize (_) and Close (X) -->
+                    <!-- Entire Top Area (including upper border padding) Is Draggable + Minimize (_) and Close (X) -->
                     <Border Grid.Row="0"
-                            Background="Transparent"
-                            BorderBrush="#FF27272A"
-                            BorderThickness="0,0,0,1"
-                            Padding="0,0,0,16"
-                            Margin="0,0,0,20"
+                            Background="#01000000"
+                            Padding="28,24,28,0"
                             MouseLeftButtonDown="Header_MouseLeftButtonDown">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
+                        <Border BorderBrush="#FF27272A"
+                                BorderThickness="0,0,0,1"
+                                Padding="0,0,0,16"
+                                Margin="0,0,0,20">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
 
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="Settings" FontSize="20" FontWeight="Bold" Foreground="#FFFFFFFF" />
-                                <TextBlock Text="Configure global overlay appearance, trigger hotkey, and manage plugins"
-                                           FontSize="12" Foreground="#FFA1A1AA" Margin="0,4,0,0" />
-                            </StackPanel>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Settings" FontSize="20" FontWeight="Bold" Foreground="#FFFFFFFF" />
+                                    <TextBlock Text="Configure global overlay appearance, trigger hotkey, and manage plugins"
+                                               FontSize="12" Foreground="#FFA1A1AA" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                </StackPanel>
 
-                            <!-- Upper-Right Window Controls: ONLY Minimize (_) and Close (X) -->
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="12,0,0,0">
-                                <Button Style="{StaticResource WindowControlButtonStyle}"
-                                        Click="MinimizeButton_Click"
-                                        ToolTip="Minimize"
-                                        Margin="0,0,4,0">
-                                    <Path Data="M4,12 H14" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
-                                          StrokeThickness="1.6" Width="12" Height="12" Stretch="Uniform" />
-                                </Button>
-                                <Button Style="{StaticResource WindowControlButtonStyle}"
-                                        Click="CloseButton_Click"
-                                        ToolTip="Close">
-                                    <Path Data="M3,3 L13,13 M13,3 L3,13" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
-                                          StrokeThickness="1.6" Width="11" Height="11" Stretch="Uniform" />
-                                </Button>
-                            </StackPanel>
-                        </Grid>
+                                <!-- Upper-Right Window Controls: ONLY Minimize (_) and Close (X) -->
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="12,0,0,0">
+                                    <Button Style="{StaticResource WindowControlButtonStyle}"
+                                            Click="MinimizeButton_Click"
+                                            ToolTip="Minimize"
+                                            Margin="0,0,4,0">
+                                        <Path Data="M4,12 H14" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                              StrokeThickness="1.6" Width="12" Height="12" Stretch="Uniform" />
+                                    </Button>
+                                    <Button Style="{StaticResource WindowControlButtonStyle}"
+                                            Click="CloseButton_Click"
+                                            ToolTip="Close">
+                                        <Path Data="M3,3 L13,13 M13,3 L3,13" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                              StrokeThickness="1.6" Width="11" Height="11" Stretch="Uniform" />
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
                     </Border>
 
                     <!-- Scrollable Settings Body with Custom ScrollBar -->
                     <ScrollViewer Grid.Row="1"
+                                  Margin="28,0,28,24"
                                   VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
                         <StackPanel Margin="0,0,14,4">
@@ -511,7 +514,7 @@
                                             PreviewMouseLeftButtonUp="Slider_PreviewMouseLeftButtonUp"
                                             Margin="0,4,0,2" />
                                     <TextBlock Text="Duration of the screen tint animation in milliseconds (Default: 250ms)."
-                                               FontSize="11" Foreground="#FFA1A1AA" Margin="0,0,0,16" />
+                                               FontSize="11" Foreground="#FFA1A1AA" Margin="0,0,0,16" TextWrapping="Wrap" />
 
                                     <Border Height="1" Background="#FF27272A" Margin="0,0,0,16" />
 
@@ -528,7 +531,7 @@
                                             PreviewMouseLeftButtonUp="Slider_PreviewMouseLeftButtonUp"
                                             Margin="0,4,0,2" />
                                     <TextBlock Text="Regulates how dark the screen overlay is (0-100%). Default: 40%."
-                                               FontSize="11" Foreground="#FFA1A1AA" Margin="0,0,0,16" />
+                                               FontSize="11" Foreground="#FFA1A1AA" Margin="0,0,0,16" TextWrapping="Wrap" />
 
                                     <Border Height="1" Background="#FF27272A" Margin="0,0,0,16" />
 
@@ -553,7 +556,7 @@
                                                 Content="Reset (Alt+Space)" Click="ResetKeybindButton_Click" />
                                     </Grid>
                                     <TextBlock x:Name="KeybindRecordingHint" Text="Press shortcut (Ctrl, Alt, Shift + any key)..."
-                                               FontSize="11" Foreground="#FFE4E4E7" Visibility="Collapsed" Margin="0,4,0,0" />
+                                               FontSize="11" Foreground="#FFE4E4E7" Visibility="Collapsed" Margin="0,4,0,0" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
 
@@ -565,19 +568,20 @@
                                     <TextBlock Text="PLUGINS" FontSize="11" FontWeight="Bold" FontFamily="Consolas" Foreground="#FFE4E4E7" Margin="0,0,0,16" />
 
                                     <!-- Row 1: Open Plugins Folder (Primary) & Restart FuncOverlay (Secondary) -->
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <WrapPanel Orientation="Horizontal" Margin="0,0,0,8">
                                         <Button Style="{StaticResource PrimaryButtonStyle}"
                                                 Content="Open Plugins Folder"
                                                 Click="OpenPluginsFolder_Click"
-                                                Margin="0,0,10,0" />
+                                                Margin="0,0,10,4" />
                                         <Button Style="{StaticResource SecondaryButtonStyle}"
                                                 Content="Restart FuncOverlay"
-                                                Click="RestartFuncOverlay_Click" />
-                                    </StackPanel>
+                                                Click="RestartFuncOverlay_Click"
+                                                Margin="0,0,0,4" />
+                                    </WrapPanel>
 
                                     <!-- Row 2: Clearly visible gray hint text -->
                                     <TextBlock Text="You need to restart FuncOverlay for the changes to take effect."
-                                               FontSize="12" Foreground="#FFA1A1AA" Margin="0,0,0,16" />
+                                               FontSize="12" Foreground="#FFA1A1AA" Margin="0,0,0,16" TextWrapping="Wrap" />
 
                                     <!-- Row 3: Install Plugin button (Primary, opens custom picker for .zip or folder) -->
                                     <Button Style="{StaticResource PrimaryButtonStyle}"
@@ -586,7 +590,7 @@
                                             Click="InstallPlugin_Click"
                                             Margin="0,0,0,4" />
                                     <TextBlock Text="Extracts plugins from directory folders or .zip archives into plugins directory."
-                                               FontSize="11" Foreground="#FFA1A1AA" Margin="0,0,0,20" />
+                                               FontSize="11" Foreground="#FFA1A1AA" Margin="0,0,0,20" TextWrapping="Wrap" />
 
                                     <Border Height="1" Background="#FF27272A" Margin="0,0,0,16" />
 
@@ -596,7 +600,7 @@
                                     <!-- Dynamic Items Control for Plugins -->
                                     <StackPanel x:Name="InstalledPluginsPanel">
                                         <TextBlock x:Name="NoPluginsText" Text="No plugins currently installed in plugins directory."
-                                                   FontSize="12" Foreground="#FFA1A1AA" Margin="0,8,0,8" />
+                                                   FontSize="12" Foreground="#FFA1A1AA" Margin="0,8,0,8" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
@@ -610,13 +614,14 @@
                         Visibility="Collapsed"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Bottom"
-                        Margin="0,0,24,20"
+                        Margin="24,0,24,20"
+                        MaxWidth="420"
                         Background="#FF18181B"
                         BorderBrush="#FF3F3F46"
                         BorderThickness="1"
                         CornerRadius="10"
                         Padding="14,9">
-                    <TextBlock x:Name="StatusToastText" Text="" FontSize="12" FontWeight="Medium" Foreground="#FFFFFFFF" />
+                    <TextBlock x:Name="StatusToastText" Text="" FontSize="12" FontWeight="Medium" Foreground="#FFFFFFFF" TextWrapping="Wrap" />
                 </Border>
 
                 <!-- Custom Monochrome Confirmation Overlay (Replaces default Windows MessageBox) -->
@@ -657,5 +662,23 @@
                 </Grid>
             </Grid>
         </Border>
+
+        <!-- Invisible Edge & Corner Resize Handles (Custom Frameless Window Resize) -->
+        <Thumb HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="6" Cursor="SizeWE" Opacity="0"
+               Margin="0,10,0,10" DragDelta="ResizeLeft_DragDelta" />
+        <Thumb HorizontalAlignment="Right" VerticalAlignment="Stretch" Width="6" Cursor="SizeWE" Opacity="0"
+               Margin="0,10,0,10" DragDelta="ResizeRight_DragDelta" />
+        <Thumb HorizontalAlignment="Stretch" VerticalAlignment="Top" Height="5" Cursor="SizeNS" Opacity="0"
+               Margin="10,0,10,0" DragDelta="ResizeTop_DragDelta" />
+        <Thumb HorizontalAlignment="Stretch" VerticalAlignment="Bottom" Height="6" Cursor="SizeNS" Opacity="0"
+               Margin="10,0,10,0" DragDelta="ResizeBottom_DragDelta" />
+        <Thumb HorizontalAlignment="Left" VerticalAlignment="Top" Width="10" Height="10" Cursor="SizeNWSE" Opacity="0"
+               DragDelta="ResizeTopLeft_DragDelta" />
+        <Thumb HorizontalAlignment="Right" VerticalAlignment="Top" Width="10" Height="10" Cursor="SizeNESW" Opacity="0"
+               DragDelta="ResizeTopRight_DragDelta" />
+        <Thumb HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="10" Height="10" Cursor="SizeNESW" Opacity="0"
+               DragDelta="ResizeBottomLeft_DragDelta" />
+        <Thumb HorizontalAlignment="Right" VerticalAlignment="Bottom" Width="10" Height="10" Cursor="SizeNWSE" Opacity="0"
+               DragDelta="ResizeBottomRight_DragDelta" />
     </Grid>
 </Window>

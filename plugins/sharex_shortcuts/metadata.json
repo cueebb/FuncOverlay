@@ -1,0 +1,54 @@
+{
+  "id": "sharex_shortcuts",
+  "name": "sharex shortcuts",
+  "description": "Compact ShareX shortcut bar with region capture, scrolling capture, QR region scan, screenshots folder, and quick ShareX restore.",
+  "version": "1.0.0",
+  "author": "FuncOverlay",
+  "entryPoint": "main.py",
+  "language": "python",
+  "position": {
+    "x": 80,
+    "y": 200,
+    "anchor": "top-left",
+    "anchorTarget": "screen",
+    "targetAnchor": "top-left"
+  },
+  "size": {
+    "width": 296,
+    "height": 96
+  },
+  "enabled": true,
+  "locked": false,
+  "widgetType": "sharex_shortcuts",
+  "settingsSchema": [
+    {
+      "key": "sharex_exe_path",
+      "label": "ShareX Executable Path",
+      "type": "string",
+      "defaultValue": "C:\\Program Files\\ShareX\\ShareX.exe",
+      "value": "C:\\Program Files\\ShareX\\ShareX.exe",
+      "description": "Path to ShareX.exe (auto-detected if left at default or installed elsewhere)."
+    },
+    {
+      "key": "screenshots_folder",
+      "label": "Screenshots Folder Override",
+      "type": "string",
+      "defaultValue": "",
+      "value": "",
+      "description": "Optional custom screenshots directory. Leave blank to detect ShareX's configured Screenshots folder."
+    },
+    {
+      "key": "qr_scan_cli_arg",
+      "label": "QR Scan CLI Argument",
+      "type": "string",
+      "defaultValue": "-QRCodeScanRegion",
+      "value": "-QRCodeScanRegion",
+      "description": "ShareX CLI command used for Scan QR Code (default: -QRCodeScanRegion; alternative: -QRCodeDecodeFromScreen or -QRCode)."
+    }
+  ],
+  "settings": {
+    "sharex_exe_path": "C:\\Program Files\\ShareX\\ShareX.exe",
+    "screenshots_folder": "",
+    "qr_scan_cli_arg": "-QRCodeScanRegion"
+  }
+}

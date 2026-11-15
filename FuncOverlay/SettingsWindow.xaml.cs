@@ -3,6 +3,7 @@ using System.IO;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -116,6 +117,64 @@ namespace FuncOverlay
         private void CloseButton_Click(object sender, RoutedEventArgs e)
         {
             this.Close();
+        }
+
+        private void ResizeLeft_DragDelta(object sender, DragDeltaEventArgs e)
+        {
+            if (this.WindowState != WindowState.Normal) return;
+            double curW = double.IsNaN(this.Width) ? this.ActualWidth : this.Width;
+            double newWidth = Math.Max(this.MinWidth, curW - e.HorizontalChange);
+            double delta = curW - newWidth;
+            this.Left += delta;
+            this.Width = newWidth;
+        }
+
+        private void ResizeRight_DragDelta(object sender, DragDeltaEventArgs e)
+        {
+            if (this.WindowState != WindowState.Normal) return;
+            double curW = double.IsNaN(this.Width) ? this.ActualWidth : this.Width;
+            this.Width = Math.Max(this.MinWidth, curW + e.HorizontalChange);
+        }
+
+        private void ResizeTop_DragDelta(object sender, DragDeltaEventArgs e)
+        {
+            if (this.WindowState != WindowState.Normal) return;
+            double curH = double.IsNaN(this.Height) ? this.ActualHeight : this.Height;
+            double newHeight = Math.Max(this.MinHeight, curH - e.VerticalChange);
+            double delta = curH - newHeight;
+            this.Top += delta;
+            this.Height = newHeight;
+        }
+
+        private void ResizeBottom_DragDelta(object sender, DragDeltaEventArgs e)
+        {
+            if (this.WindowState != WindowState.Normal) return;
+            double curH = double.IsNaN(this.Height) ? this.ActualHeight : this.Height;
+            this.Height = Math.Max(this.MinHeight, curH + e.VerticalChange);
+        }
+
+        private void ResizeTopLeft_DragDelta(object sender, DragDeltaEventArgs e)
+        {
+            ResizeTop_DragDelta(sender, e);
+            ResizeLeft_DragDelta(sender, e);
+        }
+
+        private void ResizeTopRight_DragDelta(object sender, DragDeltaEventArgs e)
+        {
+            ResizeTop_DragDelta(sender, e);
+            ResizeRight_DragDelta(sender, e);
+        }
+
+        private void ResizeBottomLeft_DragDelta(object sender, DragDeltaEventArgs e)
+        {
+            ResizeBottom_DragDelta(sender, e);
+            ResizeLeft_DragDelta(sender, e);
+        }
+
+        private void ResizeBottomRight_DragDelta(object sender, DragDeltaEventArgs e)
+        {
+            ResizeBottom_DragDelta(sender, e);
+            ResizeRight_DragDelta(sender, e);
         }
 
         private void RunOnStartupCheckBox_Click(object sender, RoutedEventArgs e)
@@ -330,13 +389,14 @@ namespace FuncOverlay
 
             // Left: Name & Description
             StackPanel infoPanel = new StackPanel { Margin = new Thickness(0, 0, 16, 0) };
-            StackPanel nameRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 2) };
+            WrapPanel nameRow = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 2) };
             TextBlock nameText = new TextBlock
             {
                 Text = plugin.Metadata.name,
                 FontWeight = FontWeights.SemiBold,
                 FontSize = 13,
-                Foreground = MediaBrushes.White
+                Foreground = MediaBrushes.White,
+                TextWrapping = TextWrapping.Wrap
             };
             Border langBadge = new Border
             {
@@ -495,11 +555,24 @@ namespace FuncOverlay
                     settingRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                     settingRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-                    StackPanel labelPanel = new StackPanel();
-                    labelPanel.Children.Add(new TextBlock { Text = def.label, FontSize = 12, Foreground = new SolidColorBrush(MediaColor.FromRgb(228, 228, 231)) });
+                    StackPanel labelPanel = new StackPanel { Margin = new Thickness(0, 0, 14, 0) };
+                    labelPanel.Children.Add(new TextBlock
+                    {
+                        Text = def.label,
+                        FontSize = 12,
+                        Foreground = new SolidColorBrush(MediaColor.FromRgb(228, 228, 231)),
+                        TextWrapping = TextWrapping.Wrap
+                    });
                     if (!string.IsNullOrEmpty(def.description))
                     {
-                        labelPanel.Children.Add(new TextBlock { Text = def.description, FontSize = 10, Foreground = new SolidColorBrush(MediaColor.FromRgb(113, 113, 122)) });
+                        labelPanel.Children.Add(new TextBlock
+                        {
+                            Text = def.description,
+                            FontSize = 10,
+                            Foreground = new SolidColorBrush(MediaColor.FromRgb(113, 113, 122)),
+                            TextWrapping = TextWrapping.Wrap,
+                            Margin = new Thickness(0, 2, 0, 0)
+                        });
                     }
                     Grid.SetColumn(labelPanel, 0);
                     settingRow.Children.Add(labelPanel);
@@ -567,7 +640,8 @@ namespace FuncOverlay
                         {
                             Style = (Style)FindResource("MonochromeTextBoxStyle"),
                             Text = Convert.ToString(def.value ?? def.defaultValue ?? ""),
-                            Width = 150
+                            Width = 170,
+                            VerticalAlignment = VerticalAlignment.Center
                         };
                         txt.TextChanged += (s, e) =>
                         {

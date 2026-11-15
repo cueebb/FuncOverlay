@@ -44,11 +44,20 @@
       "defaultValue": true,
       "value": true,
       "description": "Restore your previous expression and result when reopening FuncOverlay."
+    },
+    {
+      "key": "thousands_separator",
+      "label": "Thousands Separator (,)",
+      "type": "bool",
+      "defaultValue": true,
+      "value": true,
+      "description": "Group big numbers with commas, e.g. 999,999,999."
     }
   ],
   "settings": {
     "show_fraction": true,
     "max_decimals": 15,
-    "remember_state": true
+    "remember_state": true,
+    "thousands_separator": true
   }
 }

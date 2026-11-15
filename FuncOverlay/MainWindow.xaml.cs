@@ -552,8 +552,12 @@ namespace FuncOverlay
             PluginMetadata plugin = folder.Metadata;
             bool isObsShortcuts = string.Equals(plugin.widgetType, "obs_shortcuts", StringComparison.OrdinalIgnoreCase) ||
                                   string.Equals(plugin.id, "obs_shortcuts", StringComparison.OrdinalIgnoreCase);
+            bool isSimpleCalc = string.Equals(plugin.widgetType, "simple_calc", StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(plugin.id, "simple_calc", StringComparison.OrdinalIgnoreCase);
 
-            double width = plugin.size.width >= 180 ? plugin.size.width : (isObsShortcuts ? 252 : 300);
+            double width = plugin.size.width >= 180
+                ? plugin.size.width
+                : (isObsShortcuts ? 252 : (isSimpleCalc ? 256 : 300));
 
             // Unified Gray Plugin Style
             Border card = new Border
@@ -693,6 +697,10 @@ namespace FuncOverlay
             {
                 bodyHost.Child = BuildInteractiveGrayPluginBody(plugin.id, CreateDefaultObsShortcutsPayload());
             }
+            else if (isSimpleCalc)
+            {
+                bodyHost.Child = BuildInteractiveGrayPluginBody(plugin.id, CreateDefaultSimpleCalcPayload());
+            }
             else
             {
                 StackPanel fallbackBody = new StackPanel();
@@ -736,8 +744,63 @@ namespace FuncOverlay
             };
         }
 
+        private static PluginRenderPayload CreateDefaultSimpleCalcPayload()
+        {
+            return new PluginRenderPayload
+            {
+                type = "render",
+                style = "gray",
+                layout = "calculator",
+                display = new PluginDisplayPayload { primary = "0", secondary = string.Empty },
+                keypad = new List<List<PluginKeypadButton>>
+                {
+                    new List<PluginKeypadButton>
+                    {
+                        new PluginKeypadButton { id = "ac", label = "AC", variant = "operator" },
+                        new PluginKeypadButton { id = "parens", label = "()", variant = "operator" },
+                        new PluginKeypadButton { id = "sqrt", icon = "sqrt", label = "√", variant = "operator" },
+                        new PluginKeypadButton { id = "div", label = "÷", variant = "operator" }
+                    },
+                    new List<PluginKeypadButton>
+                    {
+                        new PluginKeypadButton { id = "7", label = "7", variant = "digit" },
+                        new PluginKeypadButton { id = "8", label = "8", variant = "digit" },
+                        new PluginKeypadButton { id = "9", label = "9", variant = "digit" },
+                        new PluginKeypadButton { id = "mul", label = "×", variant = "operator" }
+                    },
+                    new List<PluginKeypadButton>
+                    {
+                        new PluginKeypadButton { id = "4", label = "4", variant = "digit" },
+                        new PluginKeypadButton { id = "5", label = "5", variant = "digit" },
+                        new PluginKeypadButton { id = "6", label = "6", variant = "digit" },
+                        new PluginKeypadButton { id = "sub", label = "−", variant = "operator" }
+                    },
+                    new List<PluginKeypadButton>
+                    {
+                        new PluginKeypadButton { id = "1", label = "1", variant = "digit" },
+                        new PluginKeypadButton { id = "2", label = "2", variant = "digit" },
+                        new PluginKeypadButton { id = "3", label = "3", variant = "digit" },
+                        new PluginKeypadButton { id = "add", label = "+", variant = "operator" }
+                    },
+                    new List<PluginKeypadButton>
+                    {
+                        new PluginKeypadButton { id = "0", label = "0", variant = "digit" },
+                        new PluginKeypadButton { id = "dot", label = ".", variant = "digit" },
+                        new PluginKeypadButton { id = "backspace", icon = "backspace", label = "⌫", variant = "digit" },
+                        new PluginKeypadButton { id = "equals", label = "=", variant = "equals" }
+                    }
+                }
+            };
+        }
+
         private UIElement BuildInteractiveGrayPluginBody(string pluginId, PluginRenderPayload payload)
         {
+            if (string.Equals(payload.layout, "calculator", StringComparison.OrdinalIgnoreCase) ||
+                (payload.keypad != null && payload.keypad.Count > 0))
+            {
+                return BuildCalculatorPluginBody(pluginId, payload);
+            }
+
             StackPanel container = new StackPanel
             {
                 Orientation = Orientation.Vertical
@@ -812,6 +875,281 @@ namespace FuncOverlay
             }
 
             return container;
+        }
+
+        private UIElement BuildCalculatorPluginBody(string pluginId, PluginRenderPayload payload)
+        {
+            StackPanel root = new StackPanel
+            {
+                Orientation = Orientation.Vertical
+            };
+
+            PluginDisplayPayload disp = payload.display ?? new PluginDisplayPayload { primary = "0" };
+            string primary = string.IsNullOrEmpty(disp.primary) ? "0" : disp.primary;
+            double primaryFontSize = primary.Length <= 9
+                ? 28
+                : (primary.Length <= 13 ? 22 : (primary.Length <= 18 ? 17.5 : 14.5));
+
+            // Compact Two-Line Display Area (keeps fixed height so keypad never shifts on '=')
+            Grid displayGrid = new Grid
+            {
+                Height = 60,
+                Margin = new Thickness(4, 2, 4, 10)
+            };
+            displayGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(36) });
+            displayGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(24) });
+
+            TextBlock primaryText = new TextBlock
+            {
+                Text = primary,
+                FontFamily = new MediaFontFamily("Segoe UI, Consolas"),
+                FontSize = primaryFontSize,
+                FontWeight = FontWeights.Normal,
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(244, 244, 245)),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                TextAlignment = TextAlignment.Right,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            Grid.SetRow(primaryText, 0);
+            displayGrid.Children.Add(primaryText);
+
+            // Secondary / Mixed Fraction line (only visible after '=' when result has a fraction)
+            if (!string.IsNullOrEmpty(disp.fractionNum) && !string.IsNullOrEmpty(disp.fractionDen))
+            {
+                SolidColorBrush fracBrush = new SolidColorBrush(MediaColor.FromRgb(212, 212, 216));
+                StackPanel fractionRow = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+
+                if (string.Equals(disp.fractionWhole, "-", StringComparison.Ordinal))
+                {
+                    fractionRow.Children.Add(new TextBlock
+                    {
+                        Text = "−",
+                        FontSize = 15.5,
+                        Foreground = fracBrush,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 0, 2, 0)
+                    });
+                }
+                else if (!string.IsNullOrEmpty(disp.fractionWhole))
+                {
+                    fractionRow.Children.Add(new TextBlock
+                    {
+                        Text = disp.fractionWhole,
+                        FontSize = 16.5,
+                        Foreground = fracBrush,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 0, 4, 0)
+                    });
+                }
+
+                fractionRow.Children.Add(new TextBlock
+                {
+                    Text = disp.fractionNum,
+                    FontSize = 10.5,
+                    FontWeight = FontWeights.Medium,
+                    Foreground = fracBrush,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(0, 1, 1, 0)
+                });
+                fractionRow.Children.Add(new TextBlock
+                {
+                    Text = "/",
+                    FontSize = 13.5,
+                    Foreground = new SolidColorBrush(MediaColor.FromRgb(161, 161, 170)),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 1, 0)
+                });
+                fractionRow.Children.Add(new TextBlock
+                {
+                    Text = disp.fractionDen,
+                    FontSize = 10.5,
+                    FontWeight = FontWeights.Medium,
+                    Foreground = fracBrush,
+                    VerticalAlignment = VerticalAlignment.Bottom,
+                    Margin = new Thickness(0, 0, 0, 1)
+                });
+
+                Grid.SetRow(fractionRow, 1);
+                displayGrid.Children.Add(fractionRow);
+            }
+            else if (!string.IsNullOrEmpty(disp.secondary))
+            {
+                TextBlock secondaryText = new TextBlock
+                {
+                    Text = disp.secondary,
+                    FontSize = 15.5,
+                    Foreground = new SolidColorBrush(MediaColor.FromRgb(212, 212, 216)),
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetRow(secondaryText, 1);
+                displayGrid.Children.Add(secondaryText);
+            }
+
+            root.Children.Add(displayGrid);
+
+            // 5x4 Circular Button Keypad
+            var rows = payload.keypad ?? CreateDefaultSimpleCalcPayload().keypad!;
+            StackPanel keypadPanel = new StackPanel
+            {
+                Orientation = Orientation.Vertical
+            };
+
+            for (int r = 0; r < rows.Count; r++)
+            {
+                var rowButtons = rows[r];
+                Grid rowGrid = new Grid
+                {
+                    Margin = new Thickness(0, 0, 0, r < rows.Count - 1 ? 6 : 0)
+                };
+                for (int c = 0; c < rowButtons.Count; c++)
+                {
+                    rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    Border keyBtn = CreateCalculatorCircleButton(pluginId, rowButtons[c]);
+                    Grid.SetColumn(keyBtn, c);
+                    rowGrid.Children.Add(keyBtn);
+                }
+                keypadPanel.Children.Add(rowGrid);
+            }
+
+            root.Children.Add(keypadPanel);
+            return root;
+        }
+
+        private Border CreateCalculatorCircleButton(string pluginId, PluginKeypadButton btn)
+        {
+            string variant = (btn.variant ?? "digit").ToLowerInvariant();
+
+            MediaColor idleColor;
+            MediaColor hoverColor;
+            MediaColor pressedColor;
+            MediaColor fgColor;
+
+            if (variant == "equals")
+            {
+                idleColor = MediaColor.FromRgb(207, 212, 232);    // #CFD4E8
+                hoverColor = MediaColor.FromRgb(220, 224, 240);   // #DCE0F0
+                pressedColor = MediaColor.FromRgb(184, 190, 214); // #B8BED6
+                fgColor = MediaColor.FromRgb(24, 24, 27);         // #18181B
+            }
+            else if (variant == "operator")
+            {
+                idleColor = MediaColor.FromRgb(58, 61, 73);       // #3A3D49
+                hoverColor = MediaColor.FromRgb(72, 76, 90);      // #484C5A
+                pressedColor = MediaColor.FromRgb(86, 90, 106);   // #565A6A
+                fgColor = MediaColor.FromRgb(244, 244, 245);      // #F4F4F5
+            }
+            else
+            {
+                idleColor = MediaColor.FromRgb(43, 44, 48);       // #2B2C30
+                hoverColor = MediaColor.FromRgb(56, 58, 64);      // #383A40
+                pressedColor = MediaColor.FromRgb(70, 72, 80);    // #464850
+                fgColor = MediaColor.FromRgb(244, 244, 245);      // #F4F4F5
+            }
+
+            SolidColorBrush idleBg = new SolidColorBrush(idleColor);
+            SolidColorBrush hoverBg = new SolidColorBrush(hoverColor);
+            SolidColorBrush pressedBg = new SolidColorBrush(pressedColor);
+            SolidColorBrush fgBrush = new SolidColorBrush(fgColor);
+
+            Border circle = new Border
+            {
+                Width = 52,
+                Height = 52,
+                Background = idleBg,
+                CornerRadius = new CornerRadius(26),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+
+            if (string.Equals(btn.icon, "sqrt", StringComparison.OrdinalIgnoreCase))
+            {
+                // Sleek geometric square root vector glyph (clean tick + V + top vinculum)
+                Viewbox iconBox = new Viewbox
+                {
+                    Width = 19,
+                    Height = 19,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Canvas iconCanvas = new Canvas { Width = 24, Height = 24 };
+                System.Windows.Shapes.Path sqrtPath = new System.Windows.Shapes.Path
+                {
+                    Stroke = fgBrush,
+                    StrokeThickness = 1.9,
+                    StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Data = Geometry.Parse("M3,13.5 L6.2,13.5 L9.8,19.5 L14,5.5 L21,5.5")
+                };
+                iconCanvas.Children.Add(sqrtPath);
+                iconBox.Child = iconCanvas;
+                circle.Child = iconBox;
+            }
+            else if (string.Equals(btn.icon, "backspace", StringComparison.OrdinalIgnoreCase))
+            {
+                // Clean backspace pentagon + X glyph
+                Viewbox iconBox = new Viewbox
+                {
+                    Width = 19,
+                    Height = 19,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Canvas iconCanvas = new Canvas { Width = 24, Height = 24 };
+                System.Windows.Shapes.Path bsPath = new System.Windows.Shapes.Path
+                {
+                    Stroke = fgBrush,
+                    StrokeThickness = 1.75,
+                    StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Data = Geometry.Parse("M20,6 H9.5 L4,12 L9.5,18 H20 A2,2 0 0 0 22,16 V8 A2,2 0 0 0 20,6 Z M12.2,9.8 L16.8,14.2 M16.8,9.8 L12.2,14.2")
+                };
+                iconCanvas.Children.Add(bsPath);
+                iconBox.Child = iconCanvas;
+                circle.Child = iconBox;
+            }
+            else
+            {
+                double fontSize = btn.label == "AC"
+                    ? 17
+                    : (btn.label == "()" ? 18.5 : (variant == "operator" || variant == "equals" ? 22 : 20));
+                circle.Child = new TextBlock
+                {
+                    Text = btn.label,
+                    FontFamily = new MediaFontFamily("Segoe UI, Arial"),
+                    FontSize = fontSize,
+                    FontWeight = variant == "equals" ? FontWeights.SemiBold : FontWeights.Normal,
+                    Foreground = fgBrush,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, -1, 0, 0)
+                };
+            }
+
+            circle.MouseEnter += (s, e) => circle.Background = hoverBg;
+            circle.MouseLeave += (s, e) => circle.Background = idleBg;
+            circle.MouseLeftButtonDown += (s, e) =>
+            {
+                circle.Background = pressedBg;
+                DispatchPluginAction(pluginId, btn.id);
+                e.Handled = true;
+            };
+            circle.MouseLeftButtonUp += (s, e) =>
+            {
+                circle.Background = circle.IsMouseOver ? hoverBg : idleBg;
+                e.Handled = true;
+            };
+
+            return circle;
         }
 
         private Border CreateGrayShortcutButton(string pluginId, PluginRenderButton btn, Thickness margin)

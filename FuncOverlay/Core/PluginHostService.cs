@@ -31,10 +31,30 @@ namespace FuncOverlay.Core
         public string? label { get; set; }
     }
 
+    public class PluginDisplayPayload
+    {
+        public string primary { get; set; } = string.Empty;
+        public string secondary { get; set; } = string.Empty;
+        public string fractionWhole { get; set; } = string.Empty;
+        public string fractionNum { get; set; } = string.Empty;
+        public string fractionDen { get; set; } = string.Empty;
+    }
+
+    public class PluginKeypadButton
+    {
+        public string id { get; set; } = string.Empty;
+        public string label { get; set; } = string.Empty;
+        public string? icon { get; set; }
+        public string variant { get; set; } = "digit"; // "digit" | "operator" | "equals"
+    }
+
     public class PluginRenderPayload
     {
         public string type { get; set; } = "render";
         public string style { get; set; } = "gray";
+        public string? layout { get; set; }
+        public PluginDisplayPayload? display { get; set; }
+        public List<List<PluginKeypadButton>>? keypad { get; set; }
         public List<PluginRenderButton> buttons { get; set; } = new List<PluginRenderButton>();
         public List<PluginStatusItem> statusItems { get; set; } = new List<PluginStatusItem>();
     }

@@ -528,11 +528,13 @@ const PluginWidgetCard: React.FC<PluginWidgetCardProps> = ({
   const { metadata, folderName } = pluginFolder;
   const { id, name, entryPoint, language, position, size, enabled, locked, widgetType } = metadata;
   const isObsShortcuts = widgetType === 'obs_shortcuts' || id === 'obs_shortcuts';
+  const isSimpleCalc = widgetType === 'simple_calc' || id === 'simple_calc';
+  const isCompactPlugin = isObsShortcuts || isSimpleCalc;
 
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [dim] = useState({
-    width: size.width || (isObsShortcuts ? 252 : 320),
-    height: size.height || (isObsShortcuts ? 96 : 220),
+    width: size.width || (isObsShortcuts ? 252 : isSimpleCalc ? 256 : 320),
+    height: size.height || (isObsShortcuts ? 96 : isSimpleCalc ? 396 : 220),
   });
   const [isDragging, setIsDragging] = useState(false);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
@@ -621,7 +623,7 @@ const PluginWidgetCard: React.FC<PluginWidgetCardProps> = ({
         left: `${leftPos}px`,
         top: `${topPos}px`,
         width: `${dim.width}px`,
-        height: isObsShortcuts ? 'auto' : `${dim.height}px`,
+        height: isCompactPlugin ? 'auto' : `${dim.height}px`,
       }}
     >
       {/* Compact Gray Title Bar */}
@@ -661,9 +663,11 @@ const PluginWidgetCard: React.FC<PluginWidgetCardProps> = ({
       </div>
 
       {/* Widget Body */}
-      <div className={`${isObsShortcuts ? 'p-2.5' : 'flex-1 p-4 overflow-y-auto'} font-sans flex flex-col no-drag`}>
+      <div className={`${isCompactPlugin ? 'p-2.5' : 'flex-1 p-4 overflow-y-auto'} font-sans flex flex-col no-drag`}>
         {isObsShortcuts ? (
           <ObsShortcutsWidgetBody pluginFolder={pluginFolder} />
+        ) : isSimpleCalc ? (
+          <SimpleCalcWidgetBody pluginFolder={pluginFolder} />
         ) : widgetType === 'clock' ? (
           <ClockWidgetBody />
         ) : widgetType === 'sysinfo' ? (
@@ -674,7 +678,7 @@ const PluginWidgetCard: React.FC<PluginWidgetCardProps> = ({
       </div>
 
       {/* Footer omitted for compact plugins to avoid unused bottom space */}
-      {!isObsShortcuts && (
+      {!isCompactPlugin && (
         <div className="h-6 px-3 bg-zinc-950/60 border-t border-zinc-800 flex items-center justify-between text-[10px] font-mono text-zinc-400">
           <div>{entryPoint}</div>
           <div>{folderName}</div>
@@ -869,6 +873,576 @@ const ObsShortcutsWidgetBody: React.FC<{ pluginFolder: PluginFolder }> = ({ plug
           )}
         </div>
       )}
+    </div>
+  );
+};
+
+/* --- SIMPLE CALC UNIFIED GRAY WIDGET (Exact Rational + Mixed Fraction Engine) --- */
+interface BigFrac {
+  n: bigint;
+  d: bigint;
+}
+
+type CalcVal =
+  | { exact: true; frac: BigFrac; flt: number }
+  | { exact: false; frac: null; flt: number };
+
+function absBig(x: bigint): bigint {
+  return x < 0n ? -x : x;
+}
+
+function gcdBig(a: bigint, b: bigint): bigint {
+  let x = absBig(a);
+  let y = absBig(b);
+  while (y !== 0n) {
+    const t = x % y;
+    x = y;
+    y = t;
+  }
+  return x === 0n ? 1n : x;
+}
+
+function normFrac(n: bigint, d: bigint): BigFrac {
+  if (d === 0n) throw new Error('Division by zero');
+  if (n === 0n) return { n: 0n, d: 1n };
+  let num = n;
+  let den = d;
+  if (den < 0n) {
+    num = -num;
+    den = -den;
+  }
+  const g = gcdBig(num, den);
+  return { n: num / g, d: den / g };
+}
+
+function parseDecimalToFrac(str: string): BigFrac {
+  const s = str === '.' ? '0' : str;
+  const dotIdx = s.indexOf('.');
+  if (dotIdx < 0) return normFrac(BigInt(s), 1n);
+  const intPart = s.slice(0, dotIdx) || '0';
+  const fracPart = s.slice(dotIdx + 1);
+  const den = 10n ** BigInt(fracPart.length);
+  const num = BigInt(intPart) * den + BigInt(fracPart || '0');
+  return normFrac(num, den);
+}
+
+function intSqrtExact(n: bigint): bigint | null {
+  if (n < 0n) return null;
+  if (n < 2n) return n;
+  let x = n;
+  let y = (x + 1n) >> 1n;
+  while (y < x) {
+    x = y;
+    y = (x + n / x) >> 1n;
+  }
+  return x * x === n ? x : null;
+}
+
+function makeExact(f: BigFrac): CalcVal {
+  return { exact: true, frac: f, flt: Number(f.n) / Number(f.d) };
+}
+
+function makeApprox(flt: number): CalcVal {
+  return { exact: false, frac: null, flt };
+}
+
+function evaluateCalcExpression(rawExpr: string): CalcVal {
+  let expr = rawExpr.trim();
+  while (expr.length > 0 && '÷×−+/*-'.includes(expr[expr.length - 1])) {
+    expr = expr.slice(0, -1);
+  }
+  if (!expr) return makeExact({ n: 0n, d: 1n });
+
+  let balance = 0;
+  for (const ch of expr) {
+    if (ch === '(') balance++;
+    else if (ch === ')') balance--;
+  }
+  if (balance > 0) expr += ')'.repeat(balance);
+
+  type Tok = { k: 'NUM' | 'OP' | 'LPAREN' | 'RPAREN' | 'SQRT'; v: string };
+  const rawTokens: Tok[] = [];
+  let i = 0;
+  while (i < expr.length) {
+    const ch = expr[i];
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    if ((ch >= '0' && ch <= '9') || ch === '.') {
+      const start = i;
+      let hasDot = ch === '.';
+      i++;
+      while (i < expr.length && ((expr[i] >= '0' && expr[i] <= '9') || (expr[i] === '.' && !hasDot))) {
+        if (expr[i] === '.') hasDot = true;
+        i++;
+      }
+      rawTokens.push({ k: 'NUM', v: expr.slice(start, i) });
+      continue;
+    }
+    if (ch === '/' || ch === '÷') {
+      rawTokens.push({ k: 'OP', v: '÷' });
+      i++;
+    } else if (ch === '*' || ch === '×') {
+      rawTokens.push({ k: 'OP', v: '×' });
+      i++;
+    } else if (ch === '-' || ch === '−') {
+      rawTokens.push({ k: 'OP', v: '−' });
+      i++;
+    } else if (ch === '+') {
+      rawTokens.push({ k: 'OP', v: '+' });
+      i++;
+    } else if (ch === '(') {
+      rawTokens.push({ k: 'LPAREN', v: '(' });
+      i++;
+    } else if (ch === ')') {
+      rawTokens.push({ k: 'RPAREN', v: ')' });
+      i++;
+    } else if (ch === '√') {
+      rawTokens.push({ k: 'SQRT', v: '√' });
+      i++;
+    } else {
+      throw new Error(`Unexpected token ${ch}`);
+    }
+  }
+
+  const tokens: Tok[] = [];
+  rawTokens.forEach((tok, idx) => {
+    if (idx > 0) {
+      const prev = rawTokens[idx - 1].k;
+      if (
+        ((prev === 'NUM' || prev === 'RPAREN') && (tok.k === 'LPAREN' || tok.k === 'SQRT')) ||
+        (prev === 'RPAREN' && tok.k === 'NUM')
+      ) {
+        tokens.push({ k: 'OP', v: '×' });
+      }
+    }
+    tokens.push(tok);
+  });
+
+  let pos = 0;
+  const peek = () => (pos < tokens.length ? tokens[pos] : null);
+  const consume = () => tokens[pos++];
+
+  const parseExpr = (): CalcVal => {
+    let left = parseTerm();
+    while (peek()?.k === 'OP' && (peek()!.v === '+' || peek()!.v === '−')) {
+      const op = consume().v;
+      const right = parseTerm();
+      if (left.exact && right.exact) {
+        left = makeExact(
+          op === '+'
+            ? normFrac(left.frac.n * right.frac.d + right.frac.n * left.frac.d, left.frac.d * right.frac.d)
+            : normFrac(left.frac.n * right.frac.d - right.frac.n * left.frac.d, left.frac.d * right.frac.d)
+        );
+      } else {
+        left = makeApprox(op === '+' ? left.flt + right.flt : left.flt - right.flt);
+      }
+    }
+    return left;
+  };
+
+  const parseTerm = (): CalcVal => {
+    let left = parseUnary();
+    while (peek()?.k === 'OP' && (peek()!.v === '×' || peek()!.v === '÷')) {
+      const op = consume().v;
+      const right = parseUnary();
+      if (op === '÷' && (right.exact ? right.frac.n === 0n : right.flt === 0)) {
+        throw new Error('Division by zero');
+      }
+      if (left.exact && right.exact) {
+        left = makeExact(
+          op === '×'
+            ? normFrac(left.frac.n * right.frac.n, left.frac.d * right.frac.d)
+            : normFrac(left.frac.n * right.frac.d, left.frac.d * right.frac.n)
+        );
+      } else {
+        left = makeApprox(op === '×' ? left.flt * right.flt : left.flt / right.flt);
+      }
+    }
+    return left;
+  };
+
+  const parseUnary = (): CalcVal => {
+    const tok = peek();
+    if (!tok) throw new Error('Unexpected end');
+    if (tok.k === 'OP' && tok.v === '−') {
+      consume();
+      const v = parseUnary();
+      return v.exact ? makeExact({ n: -v.frac.n, d: v.frac.d }) : makeApprox(-v.flt);
+    }
+    if (tok.k === 'OP' && tok.v === '+') {
+      consume();
+      return parseUnary();
+    }
+    if (tok.k === 'SQRT') {
+      consume();
+      const v = parseUnary();
+      if (v.exact) {
+        if (v.frac.n < 0n) throw new Error('Domain error');
+        const sn = intSqrtExact(v.frac.n);
+        const sd = intSqrtExact(v.frac.d);
+        if (sn !== null && sd !== null) {
+          return makeExact(normFrac(sn, sd));
+        }
+      }
+      if (v.flt < 0) throw new Error('Domain error');
+      return makeApprox(Math.sqrt(v.flt));
+    }
+    return parsePrimary();
+  };
+
+  const parsePrimary = (): CalcVal => {
+    const tok = peek();
+    if (!tok) throw new Error('Unexpected end');
+    if (tok.k === 'NUM') {
+      consume();
+      return makeExact(parseDecimalToFrac(tok.v));
+    }
+    if (tok.k === 'LPAREN') {
+      consume();
+      const v = parseExpr();
+      if (peek()?.k === 'RPAREN') consume();
+      return v;
+    }
+    throw new Error('Invalid expression');
+  };
+
+  const res = parseExpr();
+  if (pos < tokens.length) throw new Error('Unexpected trailing input');
+  return res;
+}
+
+function formatBigFractionDecimal(f: BigFrac, maxDecimals: number): string {
+  const neg = f.n < 0n;
+  const num = absBig(f.n);
+  const den = f.d;
+  if (den === 1n) return (neg ? '-' : '') + num.toString();
+
+  const scale = 10n ** BigInt(maxDecimals);
+  // Half-up rounding of num/den * scale
+  const scaled = (num * scale * 2n + den) / (2n * den);
+  const intPart = scaled / scale;
+  const rem = scaled % scale;
+  let fracStr = rem.toString().padStart(maxDecimals, '0').replace(/0+$/, '');
+  const sign = neg && (intPart > 0n || fracStr.length > 0) ? '-' : '';
+  return fracStr ? `${sign}${intPart.toString()}.${fracStr}` : `${sign}${intPart.toString()}`;
+}
+
+interface CalcFractionDisplay {
+  whole: string;
+  num: string;
+  den: string;
+}
+
+const SIMPLE_CALC_KEYPAD: Array<Array<{ id: string; label: string; variant: 'operator' | 'digit' | 'equals'; icon?: 'sqrt' | 'backspace' }>> = [
+  [
+    { id: 'ac', label: 'AC', variant: 'operator' },
+    { id: 'parens', label: '()', variant: 'operator' },
+    { id: 'sqrt', label: '√', icon: 'sqrt', variant: 'operator' },
+    { id: 'div', label: '÷', variant: 'operator' },
+  ],
+  [
+    { id: '7', label: '7', variant: 'digit' },
+    { id: '8', label: '8', variant: 'digit' },
+    { id: '9', label: '9', variant: 'digit' },
+    { id: 'mul', label: '×', variant: 'operator' },
+  ],
+  [
+    { id: '4', label: '4', variant: 'digit' },
+    { id: '5', label: '5', variant: 'digit' },
+    { id: '6', label: '6', variant: 'digit' },
+    { id: 'sub', label: '−', variant: 'operator' },
+  ],
+  [
+    { id: '1', label: '1', variant: 'digit' },
+    { id: '2', label: '2', variant: 'digit' },
+    { id: '3', label: '3', variant: 'digit' },
+    { id: 'add', label: '+', variant: 'operator' },
+  ],
+  [
+    { id: '0', label: '0', variant: 'digit' },
+    { id: 'dot', label: '.', variant: 'digit' },
+    { id: 'backspace', label: '⌫', icon: 'backspace', variant: 'digit' },
+    { id: 'equals', label: '=', variant: 'equals' },
+  ],
+];
+
+const SimpleCalcWidgetBody: React.FC<{ pluginFolder: PluginFolder }> = ({ pluginFolder }) => {
+  const showFraction = pluginFolder.metadata.settings?.show_fraction !== false;
+  const maxDecimals = Math.max(1, Math.min(18, Number(pluginFolder.metadata.settings?.max_decimals ?? 15)));
+
+  const [expression, setExpression] = useState<string>('');
+  const [resultText, setResultText] = useState<string>('');
+  const [fractionParts, setFractionParts] = useState<CalcFractionDisplay | null>(null);
+  const [justEvaluated, setJustEvaluated] = useState<boolean>(false);
+  const [hasError, setHasError] = useState<boolean>(false);
+
+  const handleAction = (action: string) => {
+    if (action === 'ac') {
+      setExpression('');
+      setResultText('');
+      setFractionParts(null);
+      setJustEvaluated(false);
+      setHasError(false);
+      return;
+    }
+
+    if (action === 'backspace') {
+      if (hasError) {
+        setExpression('');
+        setResultText('');
+        setFractionParts(null);
+        setJustEvaluated(false);
+        setHasError(false);
+        return;
+      }
+      if (justEvaluated) {
+        setJustEvaluated(false);
+        setResultText('');
+        setFractionParts(null);
+        return;
+      }
+      setExpression((prev) => (prev.endsWith('√(') ? prev.slice(0, -2) : prev.slice(0, -1)));
+      return;
+    }
+
+    if (/^[0-9]$/.test(action)) {
+      if (justEvaluated || hasError) {
+        setExpression(action);
+        setResultText('');
+        setFractionParts(null);
+        setJustEvaluated(false);
+        setHasError(false);
+      } else {
+        setExpression((prev) => (prev === '0' ? action : prev + action));
+      }
+      return;
+    }
+
+    if (action === 'dot') {
+      if (justEvaluated || hasError) {
+        setExpression('0.');
+        setResultText('');
+        setFractionParts(null);
+        setJustEvaluated(false);
+        setHasError(false);
+        return;
+      }
+      const segment = expression.split(/[÷×−+()√]/).pop() || '';
+      if (segment.includes('.')) return;
+      if (!expression || '÷×−+(√'.includes(expression[expression.length - 1])) {
+        setExpression((prev) => prev + '0.');
+      } else if (expression[expression.length - 1] === ')') {
+        setExpression((prev) => prev + '×0.');
+      } else {
+        setExpression((prev) => prev + '.');
+      }
+      return;
+    }
+
+    if (action === 'div' || action === 'mul' || action === 'sub' || action === 'add') {
+      const opChar = { div: '÷', mul: '×', sub: '−', add: '+' }[action];
+      let base = expression;
+      if (hasError) {
+        setExpression(opChar === '−' ? '−' : '0' + opChar);
+        setResultText('');
+        setFractionParts(null);
+        setJustEvaluated(false);
+        setHasError(false);
+        return;
+      }
+      if (justEvaluated) {
+        base = resultText.replace(/-/g, '−');
+        setResultText('');
+        setFractionParts(null);
+        setJustEvaluated(false);
+      }
+      if (!base) {
+        setExpression(opChar === '−' ? '−' : '0' + opChar);
+      } else if (base[base.length - 1] === '(') {
+        if (opChar === '−') setExpression(base + '−');
+      } else if ('÷×−+'.includes(base[base.length - 1])) {
+        if (opChar === '−' && '÷×'.includes(base[base.length - 1])) {
+          setExpression(base + '−');
+        } else if (
+          base === '−' ||
+          (base.length >= 2 && base[base.length - 1] === '−' && '÷×('.includes(base[base.length - 2]))
+        ) {
+          setExpression(base);
+        } else {
+          setExpression(base.slice(0, -1) + opChar);
+        }
+      } else {
+        setExpression(base + opChar);
+      }
+      return;
+    }
+
+    if (action === 'parens') {
+      if (justEvaluated || hasError) {
+        setExpression('(');
+        setResultText('');
+        setFractionParts(null);
+        setJustEvaluated(false);
+        setHasError(false);
+        return;
+      }
+      if (!expression || expression === '0') {
+        setExpression('(');
+        return;
+      }
+      let balance = 0;
+      for (const ch of expression) {
+        if (ch === '(') balance++;
+        else if (ch === ')') balance--;
+      }
+      const last = expression[expression.length - 1];
+      if ('÷×−+(√'.includes(last)) {
+        setExpression(expression + '(');
+      } else if (balance > 0 && (/\d/.test(last) || last === ')')) {
+        setExpression(expression + ')');
+      } else {
+        setExpression(expression + '(');
+      }
+      return;
+    }
+
+    if (action === 'sqrt') {
+      if (justEvaluated || hasError) {
+        setExpression('√(');
+        setResultText('');
+        setFractionParts(null);
+        setJustEvaluated(false);
+        setHasError(false);
+        return;
+      }
+      setExpression((prev) => (!prev || prev === '0' ? '√(' : prev + '√('));
+      return;
+    }
+
+    if (action === 'equals') {
+      const targetExpr = expression || '0';
+      if (!expression) setExpression('0');
+      try {
+        const val = evaluateCalcExpression(targetExpr);
+        let formattedDec = '';
+        let nextFrac: CalcFractionDisplay | null = null;
+
+        if (val.exact) {
+          formattedDec = formatBigFractionDecimal(val.frac, maxDecimals);
+          if (showFraction && val.frac.d !== 1n && val.frac.d <= 100000n) {
+            const neg = val.frac.n < 0n;
+            const absN = absBig(val.frac.n);
+            const whole = absN / val.frac.d;
+            const rem = absN % val.frac.d;
+            const wholeStr = whole > 0n ? `${neg ? '-' : ''}${whole.toString()}` : neg ? '-' : '';
+            nextFrac = { whole: wholeStr, num: rem.toString(), den: val.frac.d.toString() };
+          }
+        } else {
+          if (!Number.isFinite(val.flt)) throw new Error('Overflow');
+          formattedDec = parseFloat(val.flt.toFixed(maxDecimals)).toString();
+        }
+
+        setResultText(formattedDec);
+        setFractionParts(nextFrac);
+        setJustEvaluated(true);
+        setHasError(false);
+      } catch {
+        setResultText('Error');
+        setFractionParts(null);
+        setJustEvaluated(true);
+        setHasError(true);
+      }
+    }
+  };
+
+  const primaryDisplay = justEvaluated ? resultText || '0' : expression || '0';
+  const primaryTextClass =
+    primaryDisplay.length <= 9
+      ? 'text-[28px]'
+      : primaryDisplay.length <= 13
+      ? 'text-[22px]'
+      : primaryDisplay.length <= 18
+      ? 'text-[17px]'
+      : 'text-[14px]';
+
+  return (
+    <div className="flex flex-col select-none">
+      {/* Two-Line Display Area (stable height so keypad never shifts on '=') */}
+      <div className="h-[60px] px-1 pt-0.5 pb-2.5 flex flex-col justify-between items-end">
+        <div
+          className={`w-full text-right font-sans font-normal text-zinc-100 leading-tight truncate ${primaryTextClass}`}
+        >
+          {primaryDisplay}
+        </div>
+        <div className="h-6 flex items-center justify-end text-zinc-300">
+          {justEvaluated && showFraction && fractionParts && (
+            <span className="inline-flex items-baseline gap-1 font-sans">
+              {fractionParts.whole === '-' ? (
+                <span className="text-[15px]">−</span>
+              ) : fractionParts.whole ? (
+                <span className="text-[16px]">{fractionParts.whole}</span>
+              ) : null}
+              <span className="inline-flex items-center leading-none">
+                <sup className="text-[10.5px] font-medium -top-1 relative">{fractionParts.num}</sup>
+                <span className="text-[13px] text-zinc-400 mx-[1px]">/</span>
+                <sub className="text-[10.5px] font-medium -bottom-0.5 relative">{fractionParts.den}</sub>
+              </span>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 5x4 Circular Button Keypad */}
+      <div className="flex flex-col gap-1.5">
+        {SIMPLE_CALC_KEYPAD.map((row, rIdx) => (
+          <div key={rIdx} className="grid grid-cols-4 gap-1.5">
+            {row.map((btn) => {
+              const colorClass =
+                btn.variant === 'equals'
+                  ? 'bg-[#CFD4E8] hover:bg-[#DCE0F0] active:bg-[#B8BED6] text-zinc-900 font-semibold'
+                  : btn.variant === 'operator'
+                  ? 'bg-[#3A3D49] hover:bg-[#484C5A] active:bg-[#565A6A] text-zinc-100'
+                  : 'bg-[#2B2C30] hover:bg-[#383A40] active:bg-[#464850] text-zinc-100';
+
+              return (
+                <button
+                  key={btn.id}
+                  type="button"
+                  onClick={() => handleAction(btn.id)}
+                  className={`w-[52px] h-[52px] mx-auto rounded-full flex items-center justify-center transition-colors cursor-pointer ${colorClass}`}
+                >
+                  {btn.icon === 'sqrt' ? (
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 13.5 H6.2 L9.8 19.5 L14 5.5 H21" />
+                    </svg>
+                  ) : btn.icon === 'backspace' ? (
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M20 6 H9.5 L4 12 L9.5 18 H20 A2 2 0 0 0 22 16 V8 A2 2 0 0 0 20 6 Z" />
+                      <path d="M12.2 9.8 L16.8 14.2 M16.8 9.8 L12.2 14.2" />
+                    </svg>
+                  ) : (
+                    <span
+                      className={
+                        btn.label === 'AC'
+                          ? 'text-[16px] leading-none'
+                          : btn.label === '()'
+                          ? 'text-[18px] leading-none'
+                          : btn.variant === 'operator' || btn.variant === 'equals'
+                          ? 'text-[21px] leading-none'
+                          : 'text-[19px] leading-none'
+                      }
+                    >
+                      {btn.label}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </div>
   );
 };

@@ -349,13 +349,22 @@ export const SettingsModal: React.FC = () => {
                   <p className="text-xs text-zinc-400">
                     {t('settings.plugins.noInstalledPlugins', { FuncOverlay_folder: '.' })}
                   </p>
-                  <button
-                    onClick={() => installPluginArchive('obs_shortcuts')}
-                    className="bg-white text-black font-semibold hover:bg-zinc-200 transition-colors cursor-pointer rounded-lg px-3.5 py-1.5 text-xs shadow-sm inline-flex items-center gap-1.5"
-                  >
-                    <Package className="w-3.5 h-3.5" />
-                    <span>+ Install "obs shortcuts" Plugin</span>
-                  </button>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      onClick={() => installPluginArchive('obs_shortcuts')}
+                      className="bg-white text-black font-semibold hover:bg-zinc-200 transition-colors cursor-pointer rounded-lg px-3.5 py-1.5 text-xs shadow-sm inline-flex items-center gap-1.5"
+                    >
+                      <Package className="w-3.5 h-3.5" />
+                      <span>+ Install &quot;obs shortcuts&quot;</span>
+                    </button>
+                    <button
+                      onClick={() => installPluginArchive('simple_calc')}
+                      className="bg-black text-white font-medium border border-white hover:bg-zinc-900 transition-colors cursor-pointer rounded-lg px-3.5 py-1.5 text-xs inline-flex items-center gap-1.5"
+                    >
+                      <Package className="w-3.5 h-3.5" />
+                      <span>+ Install &quot;simple calc&quot;</span>
+                    </button>
+                  </div>
                 </div>
               ) : (
                 /* List of Installed Plugins */

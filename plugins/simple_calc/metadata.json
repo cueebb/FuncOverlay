@@ -1,0 +1,54 @@
+{
+  "id": "simple_calc",
+  "name": "simple calc",
+  "description": "Compact calculator overlay widget with expression input, exact fraction results, and square root.",
+  "version": "1.0.0",
+  "author": "FuncOverlay",
+  "entryPoint": "main.py",
+  "language": "python",
+  "position": {
+    "x": 80,
+    "y": 196,
+    "anchor": "top-left",
+    "anchorTarget": "screen",
+    "targetAnchor": "top-left"
+  },
+  "size": {
+    "width": 256,
+    "height": 396
+  },
+  "enabled": true,
+  "locked": false,
+  "widgetType": "simple_calc",
+  "settingsSchema": [
+    {
+      "key": "show_fraction",
+      "label": "Show Fraction After =",
+      "type": "bool",
+      "defaultValue": true,
+      "value": true,
+      "description": "Display the exact mixed fraction beneath decimal results after pressing =."
+    },
+    {
+      "key": "max_decimals",
+      "label": "Max Decimal Digits",
+      "type": "int",
+      "defaultValue": 15,
+      "value": 15,
+      "description": "Maximum number of digits shown after the decimal point."
+    },
+    {
+      "key": "remember_state",
+      "label": "Remember Last Calculation",
+      "type": "bool",
+      "defaultValue": true,
+      "value": true,
+      "description": "Restore your previous expression and result when reopening FuncOverlay."
+    }
+  ],
+  "settings": {
+    "show_fraction": true,
+    "max_decimals": 15,
+    "remember_state": true
+  }
+}

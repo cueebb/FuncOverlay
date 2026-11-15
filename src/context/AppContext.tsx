@@ -47,6 +47,7 @@ interface AppContextType {
   deletePlugin: (id: string) => void;
   addSamplePlugin: (widgetType: 'clock' | 'sysinfo' | 'notes' | 'volume', language?: 'python' | 'csharp') => void;
   addObsShortcutsPlugin: () => void;
+  addSimpleCalcPlugin: () => void;
   addCustomPluginFolder: (folderName: string, language: 'python' | 'csharp', name: string, description: string) => void;
   installPluginArchive: (pluginName?: string) => void;
   saveMetadataJsonFile: (folderName: string, jsonString: string) => boolean;
@@ -674,16 +675,109 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Installed "obs shortcuts" into ./plugins/obs_shortcuts');
   }, [plugins, showToast]);
 
+  const addSimpleCalcPlugin = useCallback(() => {
+    const id = 'simple_calc';
+    if (plugins.some((p) => p.metadata.id === id)) {
+      showToast('Plugin "simple calc" is already installed');
+      return;
+    }
+
+    const schema: PluginSettingDefinition[] = [
+      {
+        key: 'show_fraction',
+        label: 'Show Fraction After =',
+        type: 'bool',
+        defaultValue: true,
+        value: true,
+        description: 'Display the exact mixed fraction beneath decimal results after pressing =.',
+      },
+      {
+        key: 'max_decimals',
+        label: 'Max Decimal Digits',
+        type: 'int',
+        defaultValue: 15,
+        value: 15,
+        description: 'Maximum number of digits shown after the decimal point.',
+      },
+      {
+        key: 'remember_state',
+        label: 'Remember Last Calculation',
+        type: 'bool',
+        defaultValue: true,
+        value: true,
+        description: 'Restore your previous expression and result when reopening FuncOverlay.',
+      },
+    ];
+
+    const settingsMap = schema.reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {} as Record<string, any>);
+
+    const metadata: PluginMetadata = {
+      id,
+      name: 'simple calc',
+      description: 'Compact calculator overlay widget with expression input, exact fraction results, and square root.',
+      version: '1.0.0',
+      author: 'FuncOverlay',
+      entryPoint: 'main.py',
+      language: 'python',
+      position: { x: 80, y: 196, anchor: 'top-left', anchorTarget: 'screen', targetAnchor: 'top-left' },
+      size: { width: 256, height: 396 },
+      enabled: true,
+      locked: false,
+      widgetType: 'simple_calc',
+      settingsSchema: schema,
+      settings: settingsMap,
+    };
+
+    const mainPySnippet = `# main.py - simple calc (Python Plugin)\n# Exact rational Fraction + sqrt arithmetic engine over stdin/stdout IPC.\n# Before '=': displays current expression.\n# After '=': displays decimal result and mixed fraction (e.g., 18 2/3).\n`;
+
+    const newFolder: PluginFolder = {
+      folderName: 'simple_calc',
+      path: 'plugins/simple_calc',
+      metadata,
+      hasMainPy: true,
+      hasPluginDll: false,
+      files: [
+        {
+          name: 'metadata.json',
+          path: 'plugins/simple_calc/metadata.json',
+          content: JSON.stringify(metadata, null, 2),
+          isMetadata: true,
+        },
+        {
+          name: 'main.py',
+          path: 'plugins/simple_calc/main.py',
+          content: mainPySnippet,
+        },
+      ],
+    };
+
+    setPlugins((prev) => {
+      const updated = [...prev, newFolder];
+      localStorage.setItem(STORAGE_KEY_PLUGINS, JSON.stringify(updated));
+      return updated;
+    });
+
+    showToast('Installed "simple calc" into ./plugins/simple_calc');
+  }, [plugins, showToast]);
+
   // Install Plugin from directory or extracted from .zip archive
-  const installPluginArchive = useCallback((_pluginName: string = 'obs_shortcuts') => {
+  const installPluginArchive = useCallback((pluginName: string = 'obs_shortcuts') => {
+    if (pluginName === 'simple_calc') {
+      addSimpleCalcPlugin();
+      return;
+    }
     if (!plugins.some((p) => p.metadata.id === 'obs_shortcuts')) {
       addObsShortcutsPlugin();
+      return;
+    }
+    if (!plugins.some((p) => p.metadata.id === 'simple_calc')) {
+      addSimpleCalcPlugin();
       return;
     }
     const types: ('clock' | 'sysinfo' | 'notes')[] = ['clock', 'sysinfo', 'notes'];
     const chosen = types[plugins.length % types.length];
     addSamplePlugin(chosen, plugins.length % 2 === 0 ? 'python' : 'csharp');
-  }, [addObsShortcutsPlugin, addSamplePlugin, plugins]);
+  }, [addObsShortcutsPlugin, addSamplePlugin, addSimpleCalcPlugin, plugins]);
 
   const addCustomPluginFolder = useCallback((folderName: string, language: 'python' | 'csharp', name: string, description: string) => {
     const cleanFolderName = folderName.replace(/[^a-zA-Z0-9_-]/g, '') || 'NewPlugin';
@@ -951,6 +1045,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deletePlugin,
         addSamplePlugin,
         addObsShortcutsPlugin,
+        addSimpleCalcPlugin,
         addCustomPluginFolder,
         installPluginArchive,
         saveMetadataJsonFile,

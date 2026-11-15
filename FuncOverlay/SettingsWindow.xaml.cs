@@ -461,6 +461,9 @@ namespace FuncOverlay
 
             container.Children.Add(topRow);
 
+            // Position, 9-Point Anchor (Screen or Other Plugin) & Lock Position
+            container.Children.Add(CreatePositionAndAnchorBox(plugin));
+
             // Bottom: Plugin Settings (Defined by metadata.json: string, int, bool, select)
             if (plugin.Metadata.settingsSchema != null && plugin.Metadata.settingsSchema.Count > 0)
             {
@@ -584,6 +587,414 @@ namespace FuncOverlay
 
             border.Child = container;
             return border;
+        }
+
+        private Border CreatePositionAndAnchorBox(PluginFolderItem plugin)
+        {
+            PluginPosition pos = plugin.Metadata.position ?? new PluginPosition();
+            string currentAnchor = PluginManager.NormalizeAnchor(pos.anchor);
+            string currentTarget = string.IsNullOrWhiteSpace(pos.anchorTarget) ? "screen" : pos.anchorTarget.Trim();
+            string currentTargetAnchor = PluginManager.NormalizeAnchor(
+                string.IsNullOrWhiteSpace(pos.targetAnchor) ? currentAnchor : pos.targetAnchor);
+            int currentX = pos.x;
+            int currentY = pos.y;
+
+            Border posBox = new Border
+            {
+                Background = new SolidColorBrush(MediaColor.FromRgb(0, 0, 0)),
+                BorderBrush = new SolidColorBrush(MediaColor.FromRgb(39, 39, 42)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12),
+                Margin = new Thickness(0, 12, 0, 0)
+            };
+
+            StackPanel posPanel = new StackPanel();
+            posPanel.Children.Add(new TextBlock
+            {
+                Text = "POSITION & ANCHOR",
+                FontSize = 10,
+                FontFamily = new MediaFontFamily("Consolas"),
+                FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(113, 113, 122)),
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+
+            // 1. Lock Position toggle row
+            Grid lockRow = new Grid { Margin = new Thickness(0, 2, 0, 10) };
+            lockRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            lockRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            StackPanel lockLabelPanel = new StackPanel { Margin = new Thickness(0, 0, 12, 0) };
+            lockLabelPanel.Children.Add(new TextBlock
+            {
+                Text = "Lock Position",
+                FontSize = 12,
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(228, 228, 231))
+            });
+            lockLabelPanel.Children.Add(new TextBlock
+            {
+                Text = "Prevent dragging on the overlay; metadata.json, Settings, and intents still apply.",
+                FontSize = 10,
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(113, 113, 122)),
+                TextWrapping = TextWrapping.Wrap
+            });
+            Grid.SetColumn(lockLabelPanel, 0);
+            lockRow.Children.Add(lockLabelPanel);
+
+            CheckBox lockToggle = new CheckBox
+            {
+                Style = (Style)FindResource("ToggleSwitchStyle"),
+                IsChecked = plugin.Metadata.locked,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            lockToggle.Click += (s, e) =>
+            {
+                bool isLocked = lockToggle.IsChecked == true;
+                plugin.Metadata.locked = isLocked;
+                _pluginManager.SetPluginLocked(plugin.FolderName, isLocked);
+                _mainWindow.UpdatePluginLockState(plugin.Metadata.id, isLocked);
+            };
+            Grid.SetColumn(lockToggle, 1);
+            lockRow.Children.Add(lockToggle);
+            posPanel.Children.Add(lockRow);
+
+            posPanel.Children.Add(new Border
+            {
+                Height = 1,
+                Background = new SolidColorBrush(MediaColor.FromRgb(24, 24, 27)),
+                Margin = new Thickness(0, 0, 0, 10)
+            });
+
+            // 2. Anchor Target (Screen vs Another Plugin) & Target Corner
+            Grid targetRow = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+            targetRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            targetRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+            targetRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            StackPanel targetCol = new StackPanel();
+            targetCol.Children.Add(new TextBlock
+            {
+                Text = "Anchor To",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(212, 212, 216)),
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+
+            ComboBox targetCombo = new ComboBox
+            {
+                Style = (Style)FindResource("MonochromeComboBoxStyle")
+            };
+
+            ComboBoxItem screenItem = new ComboBoxItem
+            {
+                Content = "Screen (Display)",
+                Tag = "screen"
+            };
+            targetCombo.Items.Add(screenItem);
+            ComboBoxItem selectedTargetItem = screenItem;
+
+            foreach (var other in _pluginManager.LoadedPluginFolders)
+            {
+                if (string.Equals(other.Metadata.id, plugin.Metadata.id, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                var item = new ComboBoxItem
+                {
+                    Content = $"{other.Metadata.name} ({other.Metadata.id})",
+                    Tag = other.Metadata.id
+                };
+                targetCombo.Items.Add(item);
+                if (string.Equals(currentTarget, other.Metadata.id, StringComparison.OrdinalIgnoreCase))
+                {
+                    selectedTargetItem = item;
+                }
+            }
+
+            if (!string.Equals(currentTarget, "screen", StringComparison.OrdinalIgnoreCase) && selectedTargetItem == screenItem)
+            {
+                var customItem = new ComboBoxItem
+                {
+                    Content = currentTarget,
+                    Tag = currentTarget
+                };
+                targetCombo.Items.Add(customItem);
+                selectedTargetItem = customItem;
+            }
+
+            targetCombo.SelectedItem = selectedTargetItem;
+            targetCol.Children.Add(targetCombo);
+            Grid.SetColumn(targetCol, 0);
+            targetRow.Children.Add(targetCol);
+
+            StackPanel targetCornerCol = new StackPanel
+            {
+                Visibility = string.Equals(currentTarget, "screen", StringComparison.OrdinalIgnoreCase)
+                    ? Visibility.Collapsed
+                    : Visibility.Visible
+            };
+            targetCornerCol.Children.Add(new TextBlock
+            {
+                Text = "Target Plugin Corner",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(212, 212, 216)),
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+
+            ComboBox targetAnchorCombo = new ComboBox
+            {
+                Style = (Style)FindResource("MonochromeComboBoxStyle")
+            };
+            ComboBoxItem? selectedCornerItem = null;
+            foreach (string key in PluginManager.AnchorOptions)
+            {
+                var cornerItem = new ComboBoxItem
+                {
+                    Content = FormatAnchorLabel(key),
+                    Tag = key
+                };
+                targetAnchorCombo.Items.Add(cornerItem);
+                if (string.Equals(key, currentTargetAnchor, StringComparison.OrdinalIgnoreCase))
+                {
+                    selectedCornerItem = cornerItem;
+                }
+            }
+            if (selectedCornerItem != null)
+            {
+                targetAnchorCombo.SelectedItem = selectedCornerItem;
+            }
+            targetCornerCol.Children.Add(targetAnchorCombo);
+            Grid.SetColumn(targetCornerCol, 2);
+            targetRow.Children.Add(targetCornerCol);
+            posPanel.Children.Add(targetRow);
+
+            // 3. 9-Point Widget Anchor Matrix + Signed X/Y Offsets
+            Grid matrixAndOffsetGrid = new Grid();
+            matrixAndOffsetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            matrixAndOffsetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
+            matrixAndOffsetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            StackPanel anchorMatrixCol = new StackPanel();
+            anchorMatrixCol.Children.Add(new TextBlock
+            {
+                Text = "Widget Anchor (9-Point)",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(212, 212, 216)),
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+
+            Border matrixFrame = new Border
+            {
+                Background = new SolidColorBrush(MediaColor.FromRgb(9, 9, 11)),
+                BorderBrush = new SolidColorBrush(MediaColor.FromRgb(39, 39, 42)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(6),
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+
+            Grid matrixGrid = new Grid { Width = 72, Height = 72 };
+            for (int i = 0; i < 3; i++)
+            {
+                matrixGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                matrixGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            }
+
+            TextBlock activeAnchorText = new TextBlock
+            {
+                Text = FormatAnchorLabel(currentAnchor),
+                FontSize = 10,
+                FontFamily = new MediaFontFamily("Consolas"),
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(161, 161, 170)),
+                Margin = new Thickness(0, 4, 0, 0)
+            };
+
+            var anchorButtons = new System.Collections.Generic.Dictionary<string, Border>(StringComparer.OrdinalIgnoreCase);
+
+            void RefreshAnchorMatrixVisuals()
+            {
+                activeAnchorText.Text = FormatAnchorLabel(currentAnchor);
+                foreach (var kv in anchorButtons)
+                {
+                    bool isSel = string.Equals(kv.Key, currentAnchor, StringComparison.OrdinalIgnoreCase);
+                    kv.Value.Background = isSel
+                        ? new SolidColorBrush(MediaColor.FromRgb(255, 255, 255))
+                        : new SolidColorBrush(MediaColor.FromRgb(24, 24, 27));
+                    kv.Value.BorderBrush = isSel
+                        ? new SolidColorBrush(MediaColor.FromRgb(255, 255, 255))
+                        : new SolidColorBrush(MediaColor.FromRgb(63, 63, 70));
+                }
+            }
+
+            void CommitPositionAndAnchor()
+            {
+                _pluginManager.UpdatePluginPosition(
+                    plugin.Metadata.id,
+                    currentX,
+                    currentY,
+                    currentAnchor,
+                    currentTarget,
+                    currentTargetAnchor);
+                _mainWindow.RepositionAllWidgets();
+            }
+
+            for (int idx = 0; idx < PluginManager.AnchorOptions.Length; idx++)
+            {
+                string anchorKey = PluginManager.AnchorOptions[idx];
+                int row = idx / 3;
+                int col = idx % 3;
+
+                Border pointBtn = new Border
+                {
+                    Width = 16,
+                    Height = 16,
+                    CornerRadius = new CornerRadius(4),
+                    BorderThickness = new Thickness(1),
+                    Cursor = System.Windows.Input.Cursors.Hand,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    ToolTip = new ToolTip
+                    {
+                        Content = FormatAnchorLabel(anchorKey),
+                        Background = new SolidColorBrush(MediaColor.FromRgb(24, 24, 27)),
+                        Foreground = MediaBrushes.White,
+                        BorderBrush = new SolidColorBrush(MediaColor.FromRgb(63, 63, 70))
+                    }
+                };
+                pointBtn.MouseLeftButtonDown += (s, e) =>
+                {
+                    currentAnchor = anchorKey;
+                    RefreshAnchorMatrixVisuals();
+                    CommitPositionAndAnchor();
+                    e.Handled = true;
+                };
+                Grid.SetRow(pointBtn, row);
+                Grid.SetColumn(pointBtn, col);
+                matrixGrid.Children.Add(pointBtn);
+                anchorButtons[anchorKey] = pointBtn;
+            }
+
+            RefreshAnchorMatrixVisuals();
+            matrixFrame.Child = matrixGrid;
+            anchorMatrixCol.Children.Add(matrixFrame);
+            anchorMatrixCol.Children.Add(activeAnchorText);
+            Grid.SetColumn(anchorMatrixCol, 0);
+            matrixAndOffsetGrid.Children.Add(anchorMatrixCol);
+
+            // Right: Signed X / Y inputs
+            StackPanel offsetsCol = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
+            Grid xyGrid = new Grid();
+            xyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            xyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+            xyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            StackPanel xCol = new StackPanel();
+            xCol.Children.Add(new TextBlock
+            {
+                Text = "Offset X (px)",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(212, 212, 216)),
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+            TextBox xBox = new TextBox
+            {
+                Style = (Style)FindResource("MonochromeTextBoxStyle"),
+                Text = currentX.ToString(),
+                TextAlignment = TextAlignment.Right
+            };
+            xBox.TextChanged += (s, e) =>
+            {
+                if (int.TryParse(xBox.Text, out int parsedX))
+                {
+                    currentX = parsedX;
+                    CommitPositionAndAnchor();
+                }
+            };
+            xCol.Children.Add(xBox);
+            Grid.SetColumn(xCol, 0);
+            xyGrid.Children.Add(xCol);
+
+            StackPanel yCol = new StackPanel();
+            yCol.Children.Add(new TextBlock
+            {
+                Text = "Offset Y (px)",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(212, 212, 216)),
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+            TextBox yBox = new TextBox
+            {
+                Style = (Style)FindResource("MonochromeTextBoxStyle"),
+                Text = currentY.ToString(),
+                TextAlignment = TextAlignment.Right
+            };
+            yBox.TextChanged += (s, e) =>
+            {
+                if (int.TryParse(yBox.Text, out int parsedY))
+                {
+                    currentY = parsedY;
+                    CommitPositionAndAnchor();
+                }
+            };
+            yCol.Children.Add(yBox);
+            Grid.SetColumn(yCol, 2);
+            xyGrid.Children.Add(yCol);
+
+            offsetsCol.Children.Add(xyGrid);
+            offsetsCol.Children.Add(new TextBlock
+            {
+                Text = "Moves the widget's selected anchor point from the anchor target (negative values supported).",
+                FontSize = 10,
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(113, 113, 122)),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 8, 0, 0)
+            });
+
+            Grid.SetColumn(offsetsCol, 2);
+            matrixAndOffsetGrid.Children.Add(offsetsCol);
+            posPanel.Children.Add(matrixAndOffsetGrid);
+
+            targetCombo.SelectionChanged += (s, e) =>
+            {
+                if (targetCombo.SelectedItem is ComboBoxItem sel && sel.Tag is string tagVal)
+                {
+                    currentTarget = tagVal;
+                    targetCornerCol.Visibility = string.Equals(currentTarget, "screen", StringComparison.OrdinalIgnoreCase)
+                        ? Visibility.Collapsed
+                        : Visibility.Visible;
+                    CommitPositionAndAnchor();
+                }
+            };
+
+            targetAnchorCombo.SelectionChanged += (s, e) =>
+            {
+                if (targetAnchorCombo.SelectedItem is ComboBoxItem sel && sel.Tag is string tagVal)
+                {
+                    currentTargetAnchor = tagVal;
+                    CommitPositionAndAnchor();
+                }
+            };
+
+            posBox.Child = posPanel;
+            return posBox;
+        }
+
+        private static string FormatAnchorLabel(string anchor)
+        {
+            return PluginManager.NormalizeAnchor(anchor) switch
+            {
+                "top-left" => "Top Left",
+                "top-center" => "Top Center",
+                "top-right" => "Top Right",
+                "center-left" => "Center Left",
+                "center" => "Center",
+                "center-right" => "Center Right",
+                "bottom-left" => "Bottom Left",
+                "bottom-center" => "Bottom Center",
+                "bottom-right" => "Bottom Right",
+                _ => "Top Left"
+            };
         }
 
         private static bool ParseBoolSetting(object? raw)

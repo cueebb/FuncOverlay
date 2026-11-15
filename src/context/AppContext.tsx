@@ -31,11 +31,19 @@ interface AppContextType {
   closeExplorer: () => void;
   openCsharpSpec: () => void;
   closeCsharpSpec: () => void;
-  updatePluginPosition: (id: string, x: number, y: number) => void;
+  updatePluginPosition: (
+    id: string,
+    x: number,
+    y: number,
+    anchor?: string,
+    anchorTarget?: string,
+    targetAnchor?: string
+  ) => void;
   updatePluginSize: (id: string, width: number, height: number) => void;
   updatePluginMetadata: (id: string, newMetadata: Partial<PluginMetadata>) => void;
   updatePluginSetting: (id: string, settingKey: string, newValue: any) => void;
   togglePluginEnabled: (id: string) => void;
+  togglePluginLocked: (id: string, locked?: boolean) => void;
   deletePlugin: (id: string) => void;
   addSamplePlugin: (widgetType: 'clock' | 'sysinfo' | 'notes' | 'volume', language?: 'python' | 'csharp') => void;
   addObsShortcutsPlugin: () => void;
@@ -194,25 +202,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsCsharpSpecOpen(false);
   }, []);
 
-  const updatePluginPosition = useCallback((id: string, x: number, y: number) => {
-    setPlugins((prev) => {
-      const updated = prev.map((pf) => {
-        if (pf.metadata.id === id) {
-          const newMeta = { ...pf.metadata, position: { x: Math.round(x), y: Math.round(y) } };
-          const updatedFiles = pf.files.map((file) => {
-            if (file.isMetadata) {
-              return { ...file, content: JSON.stringify(newMeta, null, 2) };
-            }
-            return file;
-          });
-          return { ...pf, metadata: newMeta, files: updatedFiles };
-        }
-        return pf;
+  const updatePluginPosition = useCallback(
+    (
+      id: string,
+      x: number,
+      y: number,
+      anchor?: string,
+      anchorTarget?: string,
+      targetAnchor?: string
+    ) => {
+      setPlugins((prev) => {
+        const updated = prev.map((pf) => {
+          if (pf.metadata.id === id) {
+            const existingPos = pf.metadata.position || { x: 0, y: 0 };
+            const newPos = {
+              ...existingPos,
+              x: Math.round(x),
+              y: Math.round(y),
+              anchor: anchor ?? existingPos.anchor ?? 'top-left',
+              anchorTarget:
+                anchorTarget !== undefined
+                  ? anchorTarget.trim() || 'screen'
+                  : existingPos.anchorTarget || 'screen',
+              targetAnchor:
+                targetAnchor ?? existingPos.targetAnchor ?? anchor ?? existingPos.anchor ?? 'top-left',
+            };
+            const newMeta: PluginMetadata = { ...pf.metadata, position: newPos };
+            const updatedFiles = pf.files.map((file) => {
+              if (file.isMetadata) {
+                return { ...file, content: JSON.stringify(newMeta, null, 2) };
+              }
+              return file;
+            });
+            return { ...pf, metadata: newMeta, files: updatedFiles };
+          }
+          return pf;
+        });
+        localStorage.setItem(STORAGE_KEY_PLUGINS, JSON.stringify(updated));
+        return updated;
       });
-      localStorage.setItem(STORAGE_KEY_PLUGINS, JSON.stringify(updated));
-      return updated;
-    });
-  }, []);
+    },
+    []
+  );
 
   const updatePluginSize = useCallback((id: string, width: number, height: number) => {
     setPlugins((prev) => {
@@ -298,6 +329,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (pf.metadata.id === id) {
           const enabled = !pf.metadata.enabled;
           const mergedMeta = { ...pf.metadata, enabled };
+          const updatedFiles = pf.files.map((file) => {
+            if (file.isMetadata) {
+              return { ...file, content: JSON.stringify(mergedMeta, null, 2) };
+            }
+            return file;
+          });
+          return { ...pf, metadata: mergedMeta, files: updatedFiles };
+        }
+        return pf;
+      });
+      localStorage.setItem(STORAGE_KEY_PLUGINS, JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
+  const togglePluginLocked = useCallback((id: string, explicitLocked?: boolean) => {
+    setPlugins((prev) => {
+      const updated = prev.map((pf) => {
+        if (pf.metadata.id === id) {
+          const locked = explicitLocked !== undefined ? explicitLocked : !pf.metadata.locked;
+          const mergedMeta = { ...pf.metadata, locked };
           const updatedFiles = pf.files.map((file) => {
             if (file.isMetadata) {
               return { ...file, content: JSON.stringify(mergedMeta, null, 2) };
@@ -472,9 +524,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       author: isPython ? 'PythonDev' : 'DotNetDev',
       entryPoint: entryPoint as any,
       language,
-      position: { x, y },
+      position: { x, y, anchor: 'top-left', anchorTarget: 'screen', targetAnchor: 'top-left' },
       size: { width: widgetType === 'sysinfo' ? 360 : 320, height: widgetType === 'notes' ? 260 : 220 },
       enabled: true,
+      locked: false,
       icon: widgetType,
       widgetType,
       settingsSchema: schema,
@@ -580,9 +633,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       author: 'FuncOverlay',
       entryPoint: 'main.py',
       language: 'python',
-      position: { x: 80, y: 80 },
+      position: { x: 80, y: 80, anchor: 'top-left', anchorTarget: 'screen', targetAnchor: 'top-left' },
       size: { width: 252, height: 96 },
       enabled: true,
+      locked: false,
       widgetType: 'obs_shortcuts',
       settingsSchema: schema,
       settings: settingsMap,
@@ -672,9 +726,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       author: 'User',
       entryPoint: entryPoint as any,
       language,
-      position: { x: 120, y: 120 },
+      position: { x: 120, y: 120, anchor: 'top-left', anchorTarget: 'screen', targetAnchor: 'top-left' },
       size: { width: 340, height: 240 },
       enabled: true,
+      locked: false,
       widgetType: 'custom',
       settingsSchema: defaultSchema,
       settings: {
@@ -804,10 +859,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
           break;
         }
+        case 'plugin.set_locked': {
+          const targetId = (data.pluginId as string) || callerPluginId;
+          if (targetId) {
+            const val = typeof data.locked === 'boolean' ? data.locked : undefined;
+            togglePluginLocked(targetId, val);
+          }
+          break;
+        }
         case 'plugin.move': {
           const targetId = (data.pluginId as string) || callerPluginId;
           if (targetId && typeof data.x === 'number' && typeof data.y === 'number') {
-            updatePluginPosition(targetId, data.x, data.y);
+            updatePluginPosition(
+              targetId,
+              data.x,
+              data.y,
+              typeof data.anchor === 'string' ? data.anchor : undefined,
+              typeof data.anchorTarget === 'string' ? data.anchorTarget : undefined,
+              typeof data.targetAnchor === 'string' ? data.targetAnchor : undefined
+            );
           }
           break;
         }
@@ -834,6 +904,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showToast,
       toggleOverlay,
       togglePluginEnabled,
+      togglePluginLocked,
       updatePluginPosition,
       updatePluginSetting,
     ]
@@ -876,6 +947,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updatePluginMetadata,
         updatePluginSetting,
         togglePluginEnabled,
+        togglePluginLocked,
         deletePlugin,
         addSamplePlugin,
         addObsShortcutsPlugin,

@@ -40,7 +40,7 @@
 ; Installer General Attributes
 Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
 OutFile "..\artifacts\FuncOverlay-Setup-x64.exe"
-InstallDir "$LOCALAPPDATA\FuncOverlay"
+InstallDir "$LOCALAPPDATA\FuncOverlay\"
 InstallDirRegKey ${PRODUCT_UNINST_ROOT_KEY} "${PRODUCT_DIR_REGKEY}" ""
 ShowInstDetails show
 ShowUnInstDetails show

@@ -11,6 +11,9 @@ namespace FuncOverlay.Core
     {
         public int x { get; set; } = 100;
         public int y { get; set; } = 100;
+        public string anchor { get; set; } = "top-left";
+        public string anchorTarget { get; set; } = "screen";
+        public string targetAnchor { get; set; } = "top-left";
     }
 
     public class PluginSize
@@ -42,6 +45,7 @@ namespace FuncOverlay.Core
         public PluginPosition position { get; set; } = new PluginPosition();
         public PluginSize size { get; set; } = new PluginSize();
         public bool enabled { get; set; } = true;
+        public bool locked { get; set; } = false;
         public string widgetType { get; set; } = string.Empty;
         public List<PluginSettingDefinition>? settingsSchema { get; set; }
         public Dictionary<string, object?>? settings { get; set; }
@@ -92,6 +96,16 @@ namespace FuncOverlay.Core
 
                         if (meta != null)
                         {
+                            meta.position ??= new PluginPosition();
+                            meta.position.anchor = NormalizeAnchor(meta.position.anchor);
+                            meta.position.anchorTarget = string.IsNullOrWhiteSpace(meta.position.anchorTarget)
+                                ? "screen"
+                                : meta.position.anchorTarget.Trim();
+                            meta.position.targetAnchor = NormalizeAnchor(
+                                string.IsNullOrWhiteSpace(meta.position.targetAnchor)
+                                    ? meta.position.anchor
+                                    : meta.position.targetAnchor);
+
                             string folderName = Path.GetFileName(folderPath);
                             LoadedPluginFolders.Add(new PluginFolderItem
                             {
@@ -142,6 +156,63 @@ namespace FuncOverlay.Core
                 Debug.WriteLine($"Failed to update plugin enabled state: {ex.Message}");
             }
             return false;
+        }
+
+        public bool SetPluginLocked(string folderName, bool locked)
+        {
+            try
+            {
+                string metadataPath = Path.Combine(PluginsDirectory, folderName, "metadata.json");
+                if (File.Exists(metadataPath))
+                {
+                    string json = File.ReadAllText(metadataPath);
+                    var meta = JsonSerializer.Deserialize<PluginMetadata>(json, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+
+                    if (meta != null)
+                    {
+                        meta.locked = locked;
+                        string updatedJson = JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true });
+                        File.WriteAllText(metadataPath, updatedJson);
+                        var loaded = FindFolderByPluginId(folderName);
+                        if (loaded != null) loaded.Metadata.locked = locked;
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to update plugin locked state: {ex.Message}");
+            }
+            return false;
+        }
+
+        public static readonly string[] AnchorOptions = new[]
+        {
+            "top-left", "top-center", "top-right",
+            "center-left", "center", "center-right",
+            "bottom-left", "bottom-center", "bottom-right"
+        };
+
+        public static string NormalizeAnchor(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return "top-left";
+            string s = raw.Trim().ToLowerInvariant().Replace('_', '-').Replace(' ', '-');
+            return s switch
+            {
+                "top-left" or "left-top" or "upper-left" or "left-upper" => "top-left",
+                "top-center" or "center-top" or "upper-center" or "top" => "top-center",
+                "top-right" or "right-top" or "upper-right" or "right-upper" => "top-right",
+                "center-left" or "left-center" or "middle-left" or "left" => "center-left",
+                "center" or "middle" or "center-center" => "center",
+                "center-right" or "right-center" or "middle-right" or "right" => "center-right",
+                "bottom-left" or "left-bottom" or "lower-left" or "left-lower" => "bottom-left",
+                "bottom-center" or "center-bottom" or "lower-center" or "bottom" => "bottom-center",
+                "bottom-right" or "right-bottom" or "lower-right" or "right-lower" => "bottom-right",
+                _ => "top-left"
+            };
         }
 
         public bool InstallFromPath(string sourcePath)
@@ -237,13 +308,20 @@ namespace FuncOverlay.Core
             return false;
         }
 
-        public bool UpdatePluginPosition(string pluginId, int x, int y)
+        public bool UpdatePluginPosition(
+            string pluginId,
+            int x,
+            int y,
+            string? anchor = null,
+            string? anchorTarget = null,
+            string? targetAnchor = null)
         {
             try
             {
                 foreach (var folder in LoadedPluginFolders)
                 {
-                    if (folder.Metadata.id == pluginId)
+                    if (string.Equals(folder.Metadata.id, pluginId, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(folder.FolderName, pluginId, StringComparison.OrdinalIgnoreCase))
                     {
                         string metadataPath = Path.Combine(folder.FolderPath, "metadata.json");
                         if (!File.Exists(metadataPath)) return false;
@@ -255,12 +333,27 @@ namespace FuncOverlay.Core
                         });
                         if (meta != null)
                         {
+                            meta.position ??= new PluginPosition();
                             meta.position.x = x;
                             meta.position.y = y;
+                            if (anchor != null) meta.position.anchor = NormalizeAnchor(anchor);
+                            if (anchorTarget != null)
+                            {
+                                meta.position.anchorTarget = string.IsNullOrWhiteSpace(anchorTarget)
+                                    ? "screen"
+                                    : anchorTarget.Trim();
+                            }
+                            if (targetAnchor != null) meta.position.targetAnchor = NormalizeAnchor(targetAnchor);
+
                             string updatedJson = JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true });
                             File.WriteAllText(metadataPath, updatedJson);
-                            folder.Metadata.position.x = x;
-                            folder.Metadata.position.y = y;
+
+                            folder.Metadata.position ??= new PluginPosition();
+                            folder.Metadata.position.x = meta.position.x;
+                            folder.Metadata.position.y = meta.position.y;
+                            folder.Metadata.position.anchor = NormalizeAnchor(meta.position.anchor);
+                            folder.Metadata.position.anchorTarget = meta.position.anchorTarget;
+                            folder.Metadata.position.targetAnchor = NormalizeAnchor(meta.position.targetAnchor);
                             return true;
                         }
                     }

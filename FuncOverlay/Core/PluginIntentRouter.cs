@@ -159,6 +159,10 @@ namespace FuncOverlay.Core
                         HandlePluginUpdateSetting(data, caller);
                         break;
 
+                    case "plugin.set_locked":
+                        HandlePluginSetLocked(data, caller);
+                        break;
+
                     case "plugin.move":
                         HandlePluginMove(data, caller);
                         break;
@@ -291,15 +295,49 @@ namespace FuncOverlay.Core
             }
         }
 
+        private void HandlePluginSetLocked(JsonElement? data, PluginFolderItem caller)
+        {
+            string folderName = caller.FolderName;
+            bool locked = true;
+
+            if (data.HasValue && data.Value.ValueKind == JsonValueKind.Object)
+            {
+                if (TryGetString(data.Value, "folderName", out string? targetFolder) && !string.IsNullOrWhiteSpace(targetFolder))
+                {
+                    folderName = targetFolder;
+                }
+                else if (TryGetString(data.Value, "pluginId", out string? pluginId) && !string.IsNullOrWhiteSpace(pluginId))
+                {
+                    var found = _pluginManager.FindFolderByPluginId(pluginId);
+                    if (found != null) folderName = found.FolderName;
+                }
+
+                if (TryGetBool(data.Value, "locked", out bool parsedLocked))
+                {
+                    locked = parsedLocked;
+                }
+            }
+
+            if (_pluginManager.SetPluginLocked(folderName, locked))
+            {
+                _mainWindow.UpdatePluginLockState(folderName, locked);
+                _mainWindow.SyncSettingsWindowIfOpen();
+            }
+        }
+
         private void HandlePluginMove(JsonElement? data, PluginFolderItem caller)
         {
             if (!data.HasValue || data.Value.ValueKind != JsonValueKind.Object) return;
             var obj = data.Value;
-            if (TryGetInt(obj, "x", out int x) && TryGetInt(obj, "y", out int y))
-            {
-                _pluginManager.UpdatePluginPosition(caller.Metadata.id, x, y);
-                _mainWindow.ReloadOverlayContent();
-            }
+            int x = TryGetInt(obj, "x", out int px) ? px : caller.Metadata.position.x;
+            int y = TryGetInt(obj, "y", out int py) ? py : caller.Metadata.position.y;
+            TryGetString(obj, "anchor", out string? anchor);
+            TryGetString(obj, "anchorTarget", out string? anchorTarget);
+            TryGetString(obj, "targetAnchor", out string? targetAnchor);
+
+            _pluginManager.UpdatePluginPosition(caller.Metadata.id, x, y, anchor, anchorTarget, targetAnchor);
+            _mainWindow.RepositionAllWidgets();
+            _mainWindow.SyncSettingsWindowIfOpen();
         }
 
         private void HandleFocusOrLaunchApp(JsonElement? data)

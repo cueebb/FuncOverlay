@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { t } from '../i18n';
-import { PluginFolder, PluginSettingDefinition } from '../types/plugin';
+import { PluginFolder, PluginSettingDefinition, WIDGET_ANCHOR_OPTIONS, WidgetAnchor } from '../types/plugin';
+import { normalizeAnchor } from './OverlayCanvas';
 import {
   X,
   Minus,
@@ -34,6 +35,8 @@ export const SettingsModal: React.FC = () => {
     restartApp,
     installPluginArchive,
     togglePluginEnabled,
+    togglePluginLocked,
+    updatePluginPosition,
     deletePlugin,
     updatePluginSetting,
   } = useApp();
@@ -361,7 +364,12 @@ export const SettingsModal: React.FC = () => {
                     <InstalledPluginCard
                       key={pf.metadata.id}
                       pluginFolder={pf}
+                      allPlugins={plugins}
                       onToggleEnabled={() => togglePluginEnabled(pf.metadata.id)}
+                      onToggleLocked={() => togglePluginLocked(pf.metadata.id)}
+                      onUpdatePosition={(x, y, anchor, anchorTarget, targetAnchor) =>
+                        updatePluginPosition(pf.metadata.id, x, y, anchor, anchorTarget, targetAnchor)
+                      }
                       onDelete={() => deletePlugin(pf.metadata.id)}
                       onOpenFolder={() => openExplorer(pf.folderName)}
                       onUpdateSetting={(key, val) => updatePluginSetting(pf.metadata.id, key, val)}
@@ -383,9 +391,30 @@ export const SettingsModal: React.FC = () => {
 /* ========================================================================= */
 /* INSTALLED PLUGIN CARD WITH INLINE METADATA SETTINGS (STRING, INT, BOOL)    */
 /* ========================================================================= */
+const ANCHOR_LABELS: Record<WidgetAnchor, string> = {
+  'top-left': 'Top Left',
+  'top-center': 'Top Center',
+  'top-right': 'Top Right',
+  'center-left': 'Center Left',
+  center: 'Center',
+  'center-right': 'Center Right',
+  'bottom-left': 'Bottom Left',
+  'bottom-center': 'Bottom Center',
+  'bottom-right': 'Bottom Right',
+};
+
 interface InstalledPluginCardProps {
   pluginFolder: PluginFolder;
+  allPlugins: PluginFolder[];
   onToggleEnabled: () => void;
+  onToggleLocked: () => void;
+  onUpdatePosition: (
+    x: number,
+    y: number,
+    anchor?: string,
+    anchorTarget?: string,
+    targetAnchor?: string
+  ) => void;
   onDelete: () => void;
   onOpenFolder: () => void;
   onUpdateSetting: (settingKey: string, newValue: any) => void;
@@ -393,13 +422,36 @@ interface InstalledPluginCardProps {
 
 const InstalledPluginCard: React.FC<InstalledPluginCardProps> = ({
   pluginFolder,
+  allPlugins,
   onToggleEnabled,
+  onToggleLocked,
+  onUpdatePosition,
   onDelete,
   onOpenFolder,
   onUpdateSetting,
 }) => {
   const { metadata } = pluginFolder;
-  const { name, description, entryPoint, enabled, settingsSchema, settings } = metadata;
+  const { name, description, entryPoint, enabled, locked, position, settingsSchema, settings } = metadata;
+
+  const currentAnchor = normalizeAnchor(position?.anchor);
+  const currentTarget = (position?.anchorTarget || 'screen').trim() || 'screen';
+  const currentTargetAnchor = normalizeAnchor(position?.targetAnchor || currentAnchor);
+  const currentX = position?.x ?? 0;
+  const currentY = position?.y ?? 0;
+
+  const [xInput, setXInput] = useState<string>(String(currentX));
+  const [yInput, setYInput] = useState<string>(String(currentY));
+
+  useEffect(() => {
+    setXInput(String(currentX));
+  }, [currentX]);
+
+  useEffect(() => {
+    setYInput(String(currentY));
+  }, [currentY]);
+
+  const otherPlugins = allPlugins.filter((p) => p.metadata.id !== metadata.id);
+  const isTargetingPlugin = currentTarget.toLowerCase() !== 'screen';
 
   return (
     <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-3.5 hover:border-zinc-700 transition-colors">
@@ -467,6 +519,167 @@ const InstalledPluginCard: React.FC<InstalledPluginCardProps> = ({
               <Trash2 className="w-3 h-3" />
               <span>{t('settings.plugins.deletePluginBtn')}</span>
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Position, 9-Point Anchor & Lock Position */}
+      <div className="pt-3 border-t border-zinc-900 space-y-2.5">
+        <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider font-semibold">
+          Position & Anchor
+        </div>
+
+        <div className="bg-black/60 p-3 rounded-lg border border-zinc-900 space-y-3 text-xs">
+          {/* Lock Position Toggle */}
+          <div className="flex items-center justify-between gap-3 pb-2.5 border-b border-zinc-900">
+            <div>
+              <div className="font-medium text-zinc-200">Lock Position</div>
+              <div className="text-[10px] text-zinc-500 leading-tight">
+                Prevent dragging on the overlay; metadata.json, Settings, and intents still apply.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onToggleLocked}
+              className={`w-10 h-5 flex items-center rounded-full p-0.5 transition-colors cursor-pointer border shrink-0 ${
+                locked
+                  ? 'bg-white border-white justify-end'
+                  : 'bg-zinc-900 border-zinc-700 justify-start'
+              }`}
+              title={locked ? 'Position Locked' : 'Position Unlocked'}
+            >
+              <span
+                className={`w-4 h-4 rounded-full transition-transform ${
+                  locked ? 'bg-black' : 'bg-zinc-400'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Anchor Target & Target Plugin Corner */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-[11px] text-zinc-300 block">Anchor To</label>
+              <select
+                value={currentTarget}
+                onChange={(e) =>
+                  onUpdatePosition(currentX, currentY, currentAnchor, e.target.value, currentTargetAnchor)
+                }
+                className="w-full bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-zinc-600 cursor-pointer"
+              >
+                <option value="screen">Screen (Display)</option>
+                {otherPlugins.map((other) => (
+                  <option key={other.metadata.id} value={other.metadata.id}>
+                    {other.metadata.name} ({other.metadata.id})
+                  </option>
+                ))}
+                {isTargetingPlugin &&
+                  !otherPlugins.some((o) => o.metadata.id === currentTarget) && (
+                    <option value={currentTarget}>{currentTarget}</option>
+                  )}
+              </select>
+            </div>
+
+            {isTargetingPlugin && (
+              <div className="space-y-1">
+                <label className="text-[11px] text-zinc-300 block">Target Plugin Corner</label>
+                <select
+                  value={currentTargetAnchor}
+                  onChange={(e) =>
+                    onUpdatePosition(currentX, currentY, currentAnchor, currentTarget, e.target.value)
+                  }
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-zinc-600 cursor-pointer"
+                >
+                  {WIDGET_ANCHOR_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {ANCHOR_LABELS[opt]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {/* 9-Point Widget Anchor Matrix + Signed X / Y Offsets */}
+          <div className="flex items-start gap-4 pt-1">
+            <div className="space-y-1 shrink-0">
+              <div className="text-[11px] text-zinc-300">Widget Anchor</div>
+              <div className="grid grid-cols-3 gap-1.5 p-1.5 rounded-lg bg-zinc-950 border border-zinc-800 w-fit">
+                {WIDGET_ANCHOR_OPTIONS.map((opt) => {
+                  const isActive = opt === currentAnchor;
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      title={ANCHOR_LABELS[opt]}
+                      onClick={() =>
+                        onUpdatePosition(currentX, currentY, opt, currentTarget, currentTargetAnchor)
+                      }
+                      className={`w-4 h-4 rounded border transition-colors cursor-pointer ${
+                        isActive
+                          ? 'bg-white border-white'
+                          : 'bg-zinc-900 border-zinc-700 hover:border-zinc-500'
+                      }`}
+                    />
+                  );
+                })}
+              </div>
+              <div className="text-[10px] font-mono text-zinc-400">
+                {ANCHOR_LABELS[currentAnchor]}
+              </div>
+            </div>
+
+            <div className="flex-1 space-y-2">
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="space-y-1">
+                  <label className="text-[11px] text-zinc-300 block">Offset X (px)</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={xInput}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      setXInput(raw);
+                      if (/^-?\d+$/.test(raw.trim())) {
+                        onUpdatePosition(
+                          parseInt(raw.trim(), 10),
+                          currentY,
+                          currentAnchor,
+                          currentTarget,
+                          currentTargetAnchor
+                        );
+                      }
+                    }}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-right font-mono text-xs text-white focus:outline-none focus:border-zinc-600"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] text-zinc-300 block">Offset Y (px)</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={yInput}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      setYInput(raw);
+                      if (/^-?\d+$/.test(raw.trim())) {
+                        onUpdatePosition(
+                          currentX,
+                          parseInt(raw.trim(), 10),
+                          currentAnchor,
+                          currentTarget,
+                          currentTargetAnchor
+                        );
+                      }
+                    }}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-right font-mono text-xs text-white focus:outline-none focus:border-zinc-600"
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] text-zinc-500 leading-tight">
+                Moves the widget&apos;s selected anchor point from the anchor target (negative values supported).
+              </p>
+            </div>
           </div>
         </div>
       </div>

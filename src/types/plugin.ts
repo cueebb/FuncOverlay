@@ -1,6 +1,32 @@
+export type WidgetAnchor =
+  | 'top-left'
+  | 'top-center'
+  | 'top-right'
+  | 'center-left'
+  | 'center'
+  | 'center-right'
+  | 'bottom-left'
+  | 'bottom-center'
+  | 'bottom-right';
+
+export const WIDGET_ANCHOR_OPTIONS: WidgetAnchor[] = [
+  'top-left',
+  'top-center',
+  'top-right',
+  'center-left',
+  'center',
+  'center-right',
+  'bottom-left',
+  'bottom-center',
+  'bottom-right',
+];
+
 export interface PluginPosition {
   x: number;
   y: number;
+  anchor?: WidgetAnchor | string;
+  anchorTarget?: string;
+  targetAnchor?: WidgetAnchor | string;
 }
 
 export interface PluginSize {
@@ -29,6 +55,7 @@ export interface PluginMetadata {
   position: PluginPosition;
   size: PluginSize;
   enabled: boolean;
+  locked?: boolean;
   icon?: string;
   hotkey?: string;
   dependencies?: string[];

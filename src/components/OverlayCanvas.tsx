@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { t } from '../i18n';
-import { PluginFolder } from '../types/plugin';
+import { PluginFolder, WidgetAnchor } from '../types/plugin';
 import {
   Github,
   FolderOpen,
@@ -12,9 +12,89 @@ import {
   ExternalLink,
   Clock,
   Activity,
-  FileText,
   Settings,
+  Lock,
 } from 'lucide-react';
+
+interface RectBounds {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export function normalizeAnchor(raw?: string): WidgetAnchor {
+  if (!raw) return 'top-left';
+  const s = raw.trim().toLowerCase().replace(/_/g, '-').replace(/\s+/g, '-');
+  switch (s) {
+    case 'top-left':
+    case 'left-top':
+    case 'upper-left':
+    case 'left-upper':
+      return 'top-left';
+    case 'top-center':
+    case 'center-top':
+    case 'upper-center':
+    case 'top':
+      return 'top-center';
+    case 'top-right':
+    case 'right-top':
+    case 'upper-right':
+    case 'right-upper':
+      return 'top-right';
+    case 'center-left':
+    case 'left-center':
+    case 'middle-left':
+    case 'left':
+      return 'center-left';
+    case 'center':
+    case 'middle':
+    case 'center-center':
+      return 'center';
+    case 'center-right':
+    case 'right-center':
+    case 'middle-right':
+    case 'right':
+      return 'center-right';
+    case 'bottom-left':
+    case 'left-bottom':
+    case 'lower-left':
+    case 'left-lower':
+      return 'bottom-left';
+    case 'bottom-center':
+    case 'center-bottom':
+    case 'lower-center':
+    case 'bottom':
+      return 'bottom-center';
+    case 'bottom-right':
+    case 'right-bottom':
+    case 'lower-right':
+    case 'right-lower':
+      return 'bottom-right';
+    default:
+      return 'top-left';
+  }
+}
+
+function splitAnchor(raw?: string): { vAlign: 'top' | 'center' | 'bottom'; hAlign: 'left' | 'center' | 'right' } {
+  const norm = normalizeAnchor(raw);
+  if (norm === 'center') return { vAlign: 'center', hAlign: 'center' };
+  const [v, h] = norm.split('-') as ['top' | 'center' | 'bottom', 'left' | 'center' | 'right'];
+  return { vAlign: v || 'top', hAlign: h || 'left' };
+}
+
+function getPointOnRect(
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+  anchor?: string
+): { x: number; y: number } {
+  const { vAlign, hAlign } = splitAnchor(anchor);
+  const x = hAlign === 'center' ? left + width / 2 : hAlign === 'right' ? left + width : left;
+  const y = vAlign === 'center' ? top + height / 2 : vAlign === 'bottom' ? top + height : top;
+  return { x, y };
+}
 
 export const OverlayCanvas: React.FC = () => {
   const {
@@ -33,6 +113,153 @@ export const OverlayCanvas: React.FC = () => {
   } = useApp();
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [viewport, setViewport] = useState<{ width: number; height: number }>(() => ({
+    width: typeof window !== 'undefined' ? window.innerWidth : 1280,
+    height: typeof window !== 'undefined' ? window.innerHeight : 720,
+  }));
+  const [measuredSizes, setMeasuredSizes] = useState<Record<string, { width: number; height: number }>>({});
+  const [activeDrag, setActiveDrag] = useState<{ id: string; left: number; top: number } | null>(null);
+
+  useEffect(() => {
+    const onResize = () => {
+      setViewport({ width: window.innerWidth, height: window.innerHeight });
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const handleCardMeasure = useCallback((id: string, width: number, height: number) => {
+    setMeasuredSizes((prev) => {
+      const cur = prev[id];
+      if (cur && Math.abs(cur.width - width) < 0.5 && Math.abs(cur.height - height) < 0.5) {
+        return prev;
+      }
+      return { ...prev, [id]: { width, height } };
+    });
+  }, []);
+
+  const enabledPlugins = useMemo(
+    () => plugins.filter((pf) => pf.metadata.enabled),
+    [plugins]
+  );
+
+  const resolvedBoundsMap = useMemo(() => {
+    const byId = new Map<string, PluginFolder>();
+    enabledPlugins.forEach((pf) => byId.set(pf.metadata.id, pf));
+
+    const resolved = new Map<string, RectBounds>();
+    const visiting = new Set<string>();
+
+    const getCardDim = (pf: PluginFolder) => {
+      const m = measuredSizes[pf.metadata.id];
+      const isObs = pf.metadata.widgetType === 'obs_shortcuts' || pf.metadata.id === 'obs_shortcuts';
+      const w = m?.width || pf.metadata.size.width || (isObs ? 252 : 320);
+      const h = m?.height || pf.metadata.size.height || (isObs ? 96 : 220);
+      return { width: w, height: h };
+    };
+
+    const resolveOne = (id: string): RectBounds => {
+      const existing = resolved.get(id);
+      if (existing) return existing;
+
+      const pf = byId.get(id);
+      if (!pf) return { left: 0, top: 0, width: 280, height: 96 };
+
+      const { width: w, height: h } = getCardDim(pf);
+
+      if (activeDrag && activeDrag.id === id) {
+        const dragBounds = { left: activeDrag.left, top: activeDrag.top, width: w, height: h };
+        resolved.set(id, dragBounds);
+        return dragBounds;
+      }
+
+      const pos = pf.metadata.position || { x: 80, y: 80 };
+      const wAnchor = normalizeAnchor(pos.anchor);
+      const targetId = (pos.anchorTarget || 'screen').trim();
+
+      let ax: number;
+      let ay: number;
+
+      if (
+        targetId &&
+        targetId.toLowerCase() !== 'screen' &&
+        targetId !== id &&
+        byId.has(targetId) &&
+        !visiting.has(targetId)
+      ) {
+        visiting.add(id);
+        const tBounds = resolveOne(targetId);
+        visiting.delete(id);
+
+        const tAnchor = normalizeAnchor(pos.targetAnchor || wAnchor);
+        const pt = getPointOnRect(tBounds.left, tBounds.top, tBounds.width, tBounds.height, tAnchor);
+        ax = pt.x;
+        ay = pt.y;
+      } else {
+        const pt = getPointOnRect(0, 0, viewport.width, viewport.height, wAnchor);
+        ax = pt.x;
+        ay = pt.y;
+      }
+
+      const { vAlign, hAlign } = splitAnchor(wAnchor);
+      const ox = pos.x ?? 0;
+      const oy = pos.y ?? 0;
+
+      const left =
+        hAlign === 'center' ? ax + ox - w / 2 : hAlign === 'right' ? ax - ox - w : ax + ox;
+      const top =
+        vAlign === 'center' ? ay + oy - h / 2 : vAlign === 'bottom' ? ay - oy - h : ay + oy;
+
+      const bounds = { left, top, width: w, height: h };
+      resolved.set(id, bounds);
+      return bounds;
+    };
+
+    enabledPlugins.forEach((pf) => resolveOne(pf.metadata.id));
+    return resolved;
+  }, [activeDrag, enabledPlugins, measuredSizes, viewport.height, viewport.width]);
+
+  const computeOffsetFromTopLeft = useCallback(
+    (pf: PluginFolder, left: number, top: number): { x: number; y: number } => {
+      const m = measuredSizes[pf.metadata.id];
+      const isObs = pf.metadata.widgetType === 'obs_shortcuts' || pf.metadata.id === 'obs_shortcuts';
+      const w = m?.width || pf.metadata.size.width || (isObs ? 252 : 320);
+      const h = m?.height || pf.metadata.size.height || (isObs ? 96 : 220);
+
+      const pos = pf.metadata.position || { x: 80, y: 80 };
+      const wAnchor = normalizeAnchor(pos.anchor);
+      const targetId = (pos.anchorTarget || 'screen').trim();
+
+      let ax: number;
+      let ay: number;
+
+      if (
+        targetId &&
+        targetId.toLowerCase() !== 'screen' &&
+        targetId !== pf.metadata.id &&
+        resolvedBoundsMap.has(targetId)
+      ) {
+        const tBounds = resolvedBoundsMap.get(targetId)!;
+        const tAnchor = normalizeAnchor(pos.targetAnchor || wAnchor);
+        const pt = getPointOnRect(tBounds.left, tBounds.top, tBounds.width, tBounds.height, tAnchor);
+        ax = pt.x;
+        ay = pt.y;
+      } else {
+        const pt = getPointOnRect(0, 0, viewport.width, viewport.height, wAnchor);
+        ax = pt.x;
+        ay = pt.y;
+      }
+
+      const { vAlign, hAlign } = splitAnchor(wAnchor);
+      const x =
+        hAlign === 'center' ? left + w / 2 - ax : hAlign === 'right' ? ax - (left + w) : left - ax;
+      const y =
+        vAlign === 'center' ? top + h / 2 - ay : vAlign === 'bottom' ? ay - (top + h) : top - ay;
+
+      return { x: Math.round(x), y: Math.round(y) };
+    },
+    [measuredSizes, resolvedBoundsMap, viewport.height, viewport.width]
+  );
 
   // If overlay is hidden and not fading out, do not render content
   if (!isOverlayOpen && !isFading) return null;
@@ -75,9 +302,24 @@ export const OverlayCanvas: React.FC = () => {
           onClick={handleBackdropClick}
           className="absolute inset-0 overflow-hidden pointer-events-auto"
         >
-          {plugins.map((pluginFolder) => (
-            <PluginWidgetCard key={pluginFolder.metadata.id} pluginFolder={pluginFolder} />
-          ))}
+          {plugins.map((pluginFolder) => {
+            const bounds = resolvedBoundsMap.get(pluginFolder.metadata.id);
+            return (
+              <PluginWidgetCard
+                key={pluginFolder.metadata.id}
+                pluginFolder={pluginFolder}
+                resolvedBounds={bounds}
+                viewport={viewport}
+                onMeasure={handleCardMeasure}
+                onDragMove={(left, top) => setActiveDrag({ id: pluginFolder.metadata.id, left, top })}
+                onDragEnd={(left, top) => {
+                  setActiveDrag(null);
+                  const offset = computeOffsetFromTopLeft(pluginFolder, left, top);
+                  return offset;
+                }}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -265,45 +507,93 @@ const NoPluginsCenterWindow: React.FC = () => {
 /* ========================================================================= */
 /* DRAGGABLE UNIFIED GRAY PLUGIN MODULE WIDGET CARD                           */
 /* ========================================================================= */
-const PluginWidgetCard: React.FC<{ pluginFolder: PluginFolder }> = ({ pluginFolder }) => {
+interface PluginWidgetCardProps {
+  pluginFolder: PluginFolder;
+  resolvedBounds?: RectBounds;
+  viewport: { width: number; height: number };
+  onMeasure: (id: string, width: number, height: number) => void;
+  onDragMove: (left: number, top: number) => void;
+  onDragEnd: (left: number, top: number) => { x: number; y: number };
+}
+
+const PluginWidgetCard: React.FC<PluginWidgetCardProps> = ({
+  pluginFolder,
+  resolvedBounds,
+  viewport,
+  onMeasure,
+  onDragMove,
+  onDragEnd,
+}) => {
   const { updatePluginPosition, deletePlugin, openExplorer } = useApp();
   const { metadata, folderName } = pluginFolder;
-  const { id, name, entryPoint, language, position, size, enabled, widgetType } = metadata;
+  const { id, name, entryPoint, language, position, size, enabled, locked, widgetType } = metadata;
   const isObsShortcuts = widgetType === 'obs_shortcuts' || id === 'obs_shortcuts';
 
-  const [pos, setPos] = useState({ x: position.x || 100, y: position.y || 100 });
+  const cardRef = useRef<HTMLDivElement | null>(null);
   const [dim] = useState({
     width: size.width || (isObsShortcuts ? 252 : 320),
     height: size.height || (isObsShortcuts ? 96 : 220),
   });
   const [isDragging, setIsDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const dragOffsetRef = useRef({ x: 0, y: 0 });
+  const livePosRef = useRef({
+    left: resolvedBounds?.left ?? position.x ?? 100,
+    top: resolvedBounds?.top ?? position.y ?? 100,
+  });
+
+  const leftPos = resolvedBounds?.left ?? position.x ?? 100;
+  const topPos = resolvedBounds?.top ?? position.y ?? 100;
 
   useEffect(() => {
-    setPos({ x: position.x || 100, y: position.y || 100 });
-  }, [position.x, position.y]);
+    if (!isDragging) {
+      livePosRef.current = { left: leftPos, top: topPos };
+    }
+  }, [isDragging, leftPos, topPos]);
+
+  useEffect(() => {
+    const el = cardRef.current;
+    if (!el || !enabled) return;
+    const measureNow = () => {
+      onMeasure(id, el.offsetWidth, el.offsetHeight);
+    };
+    measureNow();
+    const ro = new ResizeObserver(() => measureNow());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [enabled, id, onMeasure]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (locked) return;
     if ((e.target as HTMLElement).closest('.no-drag')) return;
     setIsDragging(true);
-    setDragOffset({
-      x: e.clientX - pos.x,
-      y: e.clientY - pos.y,
-    });
+    dragOffsetRef.current = {
+      x: e.clientX - leftPos,
+      y: e.clientY - topPos,
+    };
+    livePosRef.current = { left: leftPos, top: topPos };
   };
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (!isDragging) return;
-      const newX = Math.max(10, Math.min(window.innerWidth - dim.width - 10, e.clientX - dragOffset.x));
-      const newY = Math.max(50, Math.min(window.innerHeight - 100, e.clientY - dragOffset.y));
-      setPos({ x: newX, y: newY });
+      if (!isDragging || locked) return;
+      const cardHeight = cardRef.current?.offsetHeight || dim.height;
+      const newLeft = Math.max(
+        8,
+        Math.min(Math.max(8, viewport.width - dim.width - 8), e.clientX - dragOffsetRef.current.x)
+      );
+      const newTop = Math.max(
+        8,
+        Math.min(Math.max(8, viewport.height - cardHeight - 8), e.clientY - dragOffsetRef.current.y)
+      );
+      livePosRef.current = { left: newLeft, top: newTop };
+      onDragMove(newLeft, newTop);
     };
 
     const handleMouseUp = () => {
       if (isDragging) {
         setIsDragging(false);
-        updatePluginPosition(id, pos.x, pos.y);
+        const offset = onDragEnd(livePosRef.current.left, livePosRef.current.top);
+        updatePluginPosition(id, offset.x, offset.y);
       }
     };
 
@@ -315,29 +605,38 @@ const PluginWidgetCard: React.FC<{ pluginFolder: PluginFolder }> = ({ pluginFold
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging, dragOffset, dim, id, pos.x, pos.y, updatePluginPosition]);
+  }, [dim.height, dim.width, id, isDragging, locked, onDragEnd, onDragMove, updatePluginPosition, viewport.height, viewport.width]);
 
   if (!enabled) return null;
 
   return (
     <div
+      ref={cardRef}
       onMouseDown={handleMouseDown}
       onClick={(e) => e.stopPropagation()}
       className={`absolute rounded-xl bg-zinc-900/95 border border-zinc-700/70 shadow-2xl flex flex-col overflow-hidden text-zinc-100 transition-shadow ${
         isDragging ? 'ring-1 ring-zinc-400 opacity-95' : 'hover:border-zinc-600'
       }`}
       style={{
-        left: `${pos.x}px`,
-        top: `${pos.y}px`,
+        left: `${leftPos}px`,
+        top: `${topPos}px`,
         width: `${dim.width}px`,
         height: isObsShortcuts ? 'auto' : `${dim.height}px`,
       }}
     >
       {/* Compact Gray Title Bar */}
-      <div className="h-8 px-2.5 bg-zinc-800/80 border-b border-zinc-700/70 flex items-center justify-between cursor-grab active:cursor-grabbing text-xs">
+      <div
+        className={`h-8 px-2.5 bg-zinc-800/80 border-b border-zinc-700/70 flex items-center justify-between text-xs ${
+          locked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'
+        }`}
+      >
         <div className="flex items-center gap-1.5 overflow-hidden">
-          <GripHorizontal className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-          <span className="font-semibold text-zinc-100 truncate max-w-[145px] text-[11px]">{name}</span>
+          {locked ? (
+            <Lock className="w-3 h-3 text-zinc-400 shrink-0" />
+          ) : (
+            <GripHorizontal className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+          )}
+          <span className="font-semibold text-zinc-100 truncate max-w-[140px] text-[11px]">{name}</span>
           <span className="px-1 py-0.2 rounded text-[9px] font-mono uppercase bg-zinc-700/80 text-zinc-300">
             {language}
           </span>

@@ -40,11 +40,16 @@ namespace FuncOverlay
             new Dictionary<string, Border>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, PluginRenderPayload> _latestPayloads =
             new Dictionary<string, PluginRenderPayload>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, (PluginFolderItem Folder, Border Card)> _pluginCards =
+            new Dictionary<string, (PluginFolderItem Folder, Border Card)>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, Border> _pluginTitleBars =
+            new Dictionary<string, Border>(StringComparer.OrdinalIgnoreCase);
 
         private TrayIconManager? _trayManager;
         private bool _isOverlayVisible = true;
         private IntPtr _windowHandle;
         private SettingsWindow? _settingsWindow;
+        private string? _draggingPluginId;
 
         public bool IsOverlayVisible => _isOverlayVisible;
         public int FadeDurationMs { get; set; } = 250;
@@ -77,6 +82,7 @@ namespace FuncOverlay
 
             InitializeComponent();
             DataContext = this;
+            PluginsCanvas.SizeChanged += (s, e) => RepositionAllWidgets();
             RefreshBackdropTint();
             ReloadOverlayContent();
         }
@@ -142,11 +148,18 @@ namespace FuncOverlay
 
         public void ShowOverlayWithAnimation()
         {
-            if (_isOverlayVisible) return;
+            if (_isOverlayVisible)
+            {
+                this.Topmost = true;
+                this.Activate();
+                return;
+            }
             _isOverlayVisible = true;
+            this.Visibility = Visibility.Visible;
             this.Topmost = true;
             _pluginHostService.StartAllForOpenOverlay(_pluginManager.LoadedPluginFolders);
             AnimateOpacity(1.0);
+            this.Activate();
         }
 
         public void HideOverlayWithAnimation()
@@ -274,6 +287,9 @@ namespace FuncOverlay
         {
             _pluginHostService.StopAllOnOverlayClosed();
             _dynamicBodyContainers.Clear();
+            _pluginCards.Clear();
+            _pluginTitleBars.Clear();
+            _draggingPluginId = null;
             PluginsCanvas.Children.Clear();
 
             if (_pluginManager.LoadedPluginFolders.Count == 0)
@@ -291,15 +307,234 @@ namespace FuncOverlay
                 if (!folder.Metadata.enabled) continue;
 
                 Border widgetCard = CreateOverlayPluginWidget(folder);
-                Canvas.SetLeft(widgetCard, Math.Max(16, folder.Metadata.position.x));
-                Canvas.SetTop(widgetCard, Math.Max(16, folder.Metadata.position.y));
+                _pluginCards[folder.Metadata.id] = (folder, widgetCard);
                 PluginsCanvas.Children.Add(widgetCard);
+                widgetCard.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
             }
+
+            RepositionAllWidgets();
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(RepositionAllWidgets));
 
             if (_isOverlayVisible)
             {
                 _pluginHostService.StartAllForOpenOverlay(_pluginManager.LoadedPluginFolders);
             }
+        }
+
+        private (double Width, double Height) GetCanvasSize()
+        {
+            double w = PluginsCanvas.ActualWidth > 0
+                ? PluginsCanvas.ActualWidth
+                : (this.ActualWidth > 0 ? this.ActualWidth : SystemParameters.PrimaryScreenWidth);
+            double h = PluginsCanvas.ActualHeight > 0
+                ? PluginsCanvas.ActualHeight
+                : (this.ActualHeight > 0 ? this.ActualHeight : SystemParameters.PrimaryScreenHeight);
+            return (w, h);
+        }
+
+        private static (double Width, double Height) GetCardSize(PluginFolderItem folder, Border card)
+        {
+            double w = card.ActualWidth > 0
+                ? card.ActualWidth
+                : (!double.IsNaN(card.Width) && card.Width > 0
+                    ? card.Width
+                    : (folder.Metadata.size.width > 0 ? folder.Metadata.size.width : 280));
+            double h = card.ActualHeight > 0
+                ? card.ActualHeight
+                : (card.DesiredSize.Height > 0
+                    ? card.DesiredSize.Height
+                    : (folder.Metadata.size.height > 0 ? folder.Metadata.size.height : 96));
+            return (w, h);
+        }
+
+        private static (string VAlign, string HAlign) SplitAnchor(string? rawAnchor)
+        {
+            string norm = PluginManager.NormalizeAnchor(rawAnchor);
+            if (norm == "center") return ("center", "center");
+            string[] parts = norm.Split('-');
+            if (parts.Length == 2) return (parts[0], parts[1]);
+            return ("top", "left");
+        }
+
+        private static (double X, double Y) GetPointOnRect(double left, double top, double width, double height, string? anchor)
+        {
+            var (v, h) = SplitAnchor(anchor);
+            double x = h switch
+            {
+                "center" => left + (width / 2.0),
+                "right" => left + width,
+                _ => left
+            };
+            double y = v switch
+            {
+                "center" => top + (height / 2.0),
+                "bottom" => top + height,
+                _ => top
+            };
+            return (x, y);
+        }
+
+        private (double Left, double Top, double Width, double Height) ResolveWidgetBounds(
+            string pluginId,
+            Dictionary<string, (double Left, double Top, double Width, double Height)> resolved,
+            HashSet<string> visiting)
+        {
+            if (resolved.TryGetValue(pluginId, out var existing))
+            {
+                return existing;
+            }
+
+            if (!_pluginCards.TryGetValue(pluginId, out var entry))
+            {
+                return (0, 0, 280, 96);
+            }
+
+            var (folder, card) = entry;
+            var (w, h) = GetCardSize(folder, card);
+
+            // If currently being dragged interactively, preserve its live canvas coordinates
+            if (string.Equals(_draggingPluginId, pluginId, StringComparison.OrdinalIgnoreCase))
+            {
+                double dragL = Canvas.GetLeft(card);
+                double dragT = Canvas.GetTop(card);
+                if (double.IsNaN(dragL)) dragL = 0;
+                if (double.IsNaN(dragT)) dragT = 0;
+                var dragBounds = (dragL, dragT, w, h);
+                resolved[pluginId] = dragBounds;
+                return dragBounds;
+            }
+
+            var (canvasW, canvasH) = GetCanvasSize();
+            PluginPosition pos = folder.Metadata.position ?? new PluginPosition();
+            string wAnchor = PluginManager.NormalizeAnchor(pos.anchor);
+            string targetId = (pos.anchorTarget ?? "screen").Trim();
+
+            double ax, ay;
+            if (!string.IsNullOrEmpty(targetId) &&
+                !string.Equals(targetId, "screen", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(targetId, pluginId, StringComparison.OrdinalIgnoreCase) &&
+                _pluginCards.ContainsKey(targetId) &&
+                !visiting.Contains(targetId))
+            {
+                visiting.Add(pluginId);
+                var targetBounds = ResolveWidgetBounds(targetId, resolved, visiting);
+                visiting.Remove(pluginId);
+
+                string tAnchor = string.IsNullOrWhiteSpace(pos.targetAnchor)
+                    ? wAnchor
+                    : PluginManager.NormalizeAnchor(pos.targetAnchor);
+                (ax, ay) = GetPointOnRect(targetBounds.Left, targetBounds.Top, targetBounds.Width, targetBounds.Height, tAnchor);
+            }
+            else
+            {
+                (ax, ay) = GetPointOnRect(0, 0, canvasW, canvasH, wAnchor);
+            }
+
+            var (v, hAlign) = SplitAnchor(wAnchor);
+            double left = hAlign switch
+            {
+                "center" => ax + pos.x - (w / 2.0),
+                "right" => ax - pos.x - w,
+                _ => ax + pos.x
+            };
+            double top = v switch
+            {
+                "center" => ay + pos.y - (h / 2.0),
+                "bottom" => ay - pos.y - h,
+                _ => ay + pos.y
+            };
+
+            var bounds = (left, top, w, h);
+            resolved[pluginId] = bounds;
+            return bounds;
+        }
+
+        public void RepositionAllWidgets()
+        {
+            if (_pluginCards.Count == 0) return;
+
+            var resolved = new Dictionary<string, (double Left, double Top, double Width, double Height)>(StringComparer.OrdinalIgnoreCase);
+            var visiting = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var kv in _pluginCards)
+            {
+                if (string.Equals(_draggingPluginId, kv.Key, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var bounds = ResolveWidgetBounds(kv.Key, resolved, visiting);
+                Canvas.SetLeft(kv.Value.Card, bounds.Left);
+                Canvas.SetTop(kv.Value.Card, bounds.Top);
+            }
+        }
+
+        public void UpdatePluginLockState(string pluginIdOrFolder, bool locked)
+        {
+            var folder = _pluginManager.FindFolderByPluginId(pluginIdOrFolder);
+            string id = folder?.Metadata.id ?? pluginIdOrFolder;
+            if (folder != null)
+            {
+                folder.Metadata.locked = locked;
+            }
+            if (_pluginTitleBars.TryGetValue(id, out Border? tb))
+            {
+                tb.Cursor = locked ? System.Windows.Input.Cursors.Arrow : System.Windows.Input.Cursors.SizeAll;
+            }
+        }
+
+        private (int X, int Y) ComputeAnchorOffsetFromTopLeft(string pluginId, double left, double top)
+        {
+            if (!_pluginCards.TryGetValue(pluginId, out var entry))
+            {
+                return ((int)Math.Round(left), (int)Math.Round(top));
+            }
+
+            var (folder, card) = entry;
+            var (w, h) = GetCardSize(folder, card);
+            var (canvasW, canvasH) = GetCanvasSize();
+
+            PluginPosition pos = folder.Metadata.position ?? new PluginPosition();
+            string wAnchor = PluginManager.NormalizeAnchor(pos.anchor);
+            string targetId = (pos.anchorTarget ?? "screen").Trim();
+
+            double ax, ay;
+            if (!string.IsNullOrEmpty(targetId) &&
+                !string.Equals(targetId, "screen", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(targetId, pluginId, StringComparison.OrdinalIgnoreCase) &&
+                _pluginCards.TryGetValue(targetId, out var targetEntry))
+            {
+                double tL = Canvas.GetLeft(targetEntry.Card);
+                double tT = Canvas.GetTop(targetEntry.Card);
+                if (double.IsNaN(tL)) tL = 0;
+                if (double.IsNaN(tT)) tT = 0;
+                var (tW, tH) = GetCardSize(targetEntry.Folder, targetEntry.Card);
+
+                string tAnchor = string.IsNullOrWhiteSpace(pos.targetAnchor)
+                    ? wAnchor
+                    : PluginManager.NormalizeAnchor(pos.targetAnchor);
+                (ax, ay) = GetPointOnRect(tL, tT, tW, tH, tAnchor);
+            }
+            else
+            {
+                (ax, ay) = GetPointOnRect(0, 0, canvasW, canvasH, wAnchor);
+            }
+
+            var (v, hAlign) = SplitAnchor(wAnchor);
+            double x = hAlign switch
+            {
+                "center" => (left + (w / 2.0)) - ax,
+                "right" => ax - (left + w),
+                _ => left - ax
+            };
+            double y = v switch
+            {
+                "center" => (top + (h / 2.0)) - ay,
+                "bottom" => ay - (top + h),
+                _ => top - ay
+            };
+
+            return ((int)Math.Round(x), (int)Math.Round(y));
         }
 
         private void OnPluginRenderReceived(string pluginId, PluginRenderPayload payload)
@@ -308,6 +543,7 @@ namespace FuncOverlay
             if (_dynamicBodyContainers.TryGetValue(pluginId, out Border? bodyHost))
             {
                 bodyHost.Child = BuildInteractiveGrayPluginBody(pluginId, payload);
+                Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(RepositionAllWidgets));
             }
         }
 
@@ -330,6 +566,9 @@ namespace FuncOverlay
                 ClipToBounds = true
             };
 
+            // Keep anchors & dependent widgets aligned whenever card height changes dynamically
+            card.SizeChanged += (s, e) => RepositionAllWidgets();
+
             // Prevent clicks inside plugin widget from closing the overlay
             card.MouseLeftButtonDown += (s, e) => e.Handled = true;
             card.MouseRightButtonDown += (s, e) => e.Handled = true;
@@ -339,7 +578,7 @@ namespace FuncOverlay
                 Orientation = Orientation.Vertical
             };
 
-            // Compact Draggable Gray Header
+            // Compact Draggable Gray Header (unless position is locked)
             Border titleBar = new Border
             {
                 Height = 32,
@@ -347,8 +586,9 @@ namespace FuncOverlay
                 BorderBrush = new SolidColorBrush(MediaColor.FromRgb(45, 45, 50)),
                 BorderThickness = new Thickness(0, 0, 0, 1),
                 Padding = new Thickness(10, 0, 10, 0),
-                Cursor = System.Windows.Input.Cursors.SizeAll
+                Cursor = plugin.locked ? System.Windows.Input.Cursors.Arrow : System.Windows.Input.Cursors.SizeAll
             };
+            _pluginTitleBars[plugin.id] = titleBar;
 
             Grid titleGrid = new Grid();
             titleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -385,33 +625,54 @@ namespace FuncOverlay
             titleGrid.Children.Add(langBadge);
             titleBar.Child = titleGrid;
 
-            // Drag Support on Plugin Card Header
+            // Drag Support on Plugin Card Header (blocked when plugin.locked is true)
             bool isDragging = false;
             System.Windows.Point dragOffset = new System.Windows.Point();
             titleBar.MouseLeftButtonDown += (s, e) =>
             {
+                if (folder.Metadata.locked)
+                {
+                    e.Handled = true;
+                    return;
+                }
                 isDragging = true;
+                _draggingPluginId = plugin.id;
                 System.Windows.Point mousePos = e.GetPosition(PluginsCanvas);
-                dragOffset = new System.Windows.Point(mousePos.X - Canvas.GetLeft(card), mousePos.Y - Canvas.GetTop(card));
+                double curLeft = Canvas.GetLeft(card);
+                double curTop = Canvas.GetTop(card);
+                if (double.IsNaN(curLeft)) curLeft = 0;
+                if (double.IsNaN(curTop)) curTop = 0;
+                dragOffset = new System.Windows.Point(mousePos.X - curLeft, mousePos.Y - curTop);
                 titleBar.CaptureMouse();
                 e.Handled = true;
             };
             titleBar.MouseMove += (s, e) =>
             {
-                if (!isDragging) return;
+                if (!isDragging || folder.Metadata.locked) return;
                 System.Windows.Point mousePos = e.GetPosition(PluginsCanvas);
+                var (canvasW, canvasH) = GetCanvasSize();
                 double cardHeight = card.ActualHeight > 0 ? card.ActualHeight : 100;
-                double nx = Math.Max(8, Math.Min(ActualWidth - card.Width - 8, mousePos.X - dragOffset.X));
-                double ny = Math.Max(8, Math.Min(ActualHeight - cardHeight - 8, mousePos.Y - dragOffset.Y));
+                double nx = Math.Max(8, Math.Min(Math.Max(8, canvasW - card.Width - 8), mousePos.X - dragOffset.X));
+                double ny = Math.Max(8, Math.Min(Math.Max(8, canvasH - cardHeight - 8), mousePos.Y - dragOffset.Y));
                 Canvas.SetLeft(card, nx);
                 Canvas.SetTop(card, ny);
+                RepositionAllWidgets();
             };
             titleBar.MouseLeftButtonUp += (s, e) =>
             {
                 if (!isDragging) return;
                 isDragging = false;
+                _draggingPluginId = null;
                 titleBar.ReleaseMouseCapture();
-                _pluginManager.UpdatePluginPosition(plugin.id, (int)Canvas.GetLeft(card), (int)Canvas.GetTop(card));
+
+                double finalLeft = Canvas.GetLeft(card);
+                double finalTop = Canvas.GetTop(card);
+                if (double.IsNaN(finalLeft)) finalLeft = 0;
+                if (double.IsNaN(finalTop)) finalTop = 0;
+                var (offsetX, offsetY) = ComputeAnchorOffsetFromTopLeft(plugin.id, finalLeft, finalTop);
+                _pluginManager.UpdatePluginPosition(plugin.id, offsetX, offsetY);
+                RepositionAllWidgets();
+                SyncSettingsWindowIfOpen();
                 e.Handled = true;
             };
 

@@ -144,6 +144,7 @@ namespace FuncOverlay
         {
             if (_isOverlayVisible) return;
             _isOverlayVisible = true;
+            this.Topmost = true;
             _pluginHostService.StartAllForOpenOverlay(_pluginManager.LoadedPluginFolders);
             AnimateOpacity(1.0);
         }
@@ -154,6 +155,16 @@ namespace FuncOverlay
             _isOverlayVisible = false;
             _pluginHostService.StopAllOnOverlayClosed();
             AnimateOpacity(0.0);
+        }
+
+        public void HideOverlayImmediately()
+        {
+            _isOverlayVisible = false;
+            _pluginHostService.StopAllOnOverlayClosed();
+            OverlayRootGrid.BeginAnimation(UIElement.OpacityProperty, null);
+            OverlayRootGrid.Opacity = 0;
+            this.Topmost = false;
+            this.Visibility = Visibility.Collapsed;
         }
 
         public void ToggleOverlayWithAnimation()

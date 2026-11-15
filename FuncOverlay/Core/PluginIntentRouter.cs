@@ -17,6 +17,33 @@ namespace FuncOverlay.Core
     {
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT_STRUCT
+        {
+            public int x;
+            public int y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT_STRUCT
+        {
+            public int left;
+            public int top;
+            public int right;
+            public int bottom;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct WINDOWPLACEMENT
+        {
+            public int length;
+            public int flags;
+            public int showCmd;
+            public POINT_STRUCT ptMinPosition;
+            public POINT_STRUCT ptMaxPosition;
+            public RECT_STRUCT rcNormalPosition;
+        }
+
         [DllImport("user32.dll")]
         private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
 
@@ -30,13 +57,28 @@ namespace FuncOverlay.Core
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
         [DllImport("user32.dll")]
+        private static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        private static extern void SwitchToThisWindow(IntPtr hWnd, bool fAltTab);
+
+        [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
 
         [DllImport("user32.dll")]
         private static extern bool BringWindowToTop(IntPtr hWnd);
 
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
 
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
@@ -58,8 +100,16 @@ namespace FuncOverlay.Core
 
         private const int SW_SHOW = 5;
         private const int SW_RESTORE = 9;
+        private const int SW_SHOWMAXIMIZED = 3;
+        private const int SW_SHOWMINIMIZED = 2;
+        private const int WPF_RESTORETOMAXIMIZED = 2;
+        private const uint GW_OWNER = 4;
         private const int GWL_STYLE = -16;
         private const int WS_CAPTION = 0x00C00000;
+        private const uint SWP_NOSIZE = 0x0001;
+        private const uint SWP_NOMOVE = 0x0002;
+        private const uint SWP_SHOWWINDOW = 0x0040;
+        private const int ERROR_ACCESS_DENIED = 5;
 
         private readonly PluginManager _pluginManager;
         private readonly MainWindow _mainWindow;
@@ -286,16 +336,23 @@ namespace FuncOverlay.Core
                 }
             }
 
+            // Immediately drop Topmost + collapse overlay so it never blocks or covers the restored window
             if (closeOverlay)
             {
-                _mainWindow.HideOverlayWithAnimation();
+                _mainWindow.HideOverlayImmediately();
             }
 
-            // 1. Try restoring an existing window (handles taskbar-minimized AND tray-hidden windows)
+            // 1. Try restoring an existing main window (handles taskbar-minimized AND tray-hidden windows)
             IntPtr targetHwnd = FindAppWindow(processNames, titleHints);
             if (targetHwnd != IntPtr.Zero)
             {
-                RestoreAndFocusWindow(targetHwnd);
+                bool accessDenied = false;
+                RestoreAndFocusWindow(targetHwnd, out accessDenied);
+                if (accessDenied)
+                {
+                    _mainWindow.ShowOverlayWithAnimation();
+                    _mainWindow.ShowOverlayToast("OBS is running as Administrator — run FuncOverlay as Administrator to restore it.", 4500);
+                }
                 return;
             }
 
@@ -343,33 +400,54 @@ namespace FuncOverlay.Core
         private static IntPtr FindAppWindow(List<string> processNames, List<string> titleHints)
         {
             var matchingPids = new HashSet<uint>();
+            IntPtr fallbackMainHandle = IntPtr.Zero;
+
             foreach (string procName in processNames)
             {
                 try
                 {
                     foreach (Process p in Process.GetProcessesByName(procName))
                     {
-                        if (p.MainWindowHandle != IntPtr.Zero)
+                        using (p)
                         {
-                            return p.MainWindowHandle;
+                            matchingPids.Add((uint)p.Id);
+                            if (fallbackMainHandle == IntPtr.Zero && p.MainWindowHandle != IntPtr.Zero)
+                            {
+                                fallbackMainHandle = p.MainWindowHandle;
+                            }
                         }
-                        matchingPids.Add((uint)p.Id);
                     }
                 }
                 catch { }
             }
 
-            IntPtr visibleMatch = IntPtr.Zero;
-            IntPtr hiddenMatch = IntPtr.Zero;
+            IntPtr visiblePidMain = IntPtr.Zero;
+            IntPtr hiddenPidMain = IntPtr.Zero;
+            IntPtr visibleTitleMain = IntPtr.Zero;
+            IntPtr hiddenTitleMain = IntPtr.Zero;
 
             EnumWindows((hWnd, lParam) =>
             {
+                // Only match unowned top-level app windows (skips owned Qt docks/popups/dialogs)
+                if (GetWindow(hWnd, GW_OWNER) != IntPtr.Zero) return true;
+
+                int style = GetWindowLong(hWnd, GWL_STYLE);
+                bool hasCaption = (style & WS_CAPTION) == WS_CAPTION;
+                if (!hasCaption) return true;
+
                 int len = GetWindowTextLengthW(hWnd);
                 if (len <= 0) return true;
 
                 StringBuilder sb = new StringBuilder(len + 1);
                 GetWindowTextW(hWnd, sb, sb.Capacity);
                 string title = sb.ToString();
+
+                bool pidMatched = false;
+                if (matchingPids.Count > 0)
+                {
+                    GetWindowThreadProcessId(hWnd, out uint pid);
+                    pidMatched = matchingPids.Contains(pid);
+                }
 
                 bool titleMatched = false;
                 foreach (string hint in titleHints)
@@ -381,67 +459,88 @@ namespace FuncOverlay.Core
                     }
                 }
 
-                bool pidMatched = false;
-                if (matchingPids.Count > 0)
+                if (!pidMatched && !titleMatched) return true;
+
+                bool isVisible = IsWindowVisible(hWnd);
+                if (pidMatched)
                 {
-                    GetWindowThreadProcessId(hWnd, out uint pid);
-                    pidMatched = matchingPids.Contains(pid);
+                    if (isVisible && visiblePidMain == IntPtr.Zero) visiblePidMain = hWnd;
+                    else if (!isVisible && hiddenPidMain == IntPtr.Zero) hiddenPidMain = hWnd;
                 }
-
-                if (!titleMatched && !pidMatched) return true;
-
-                // Ignore non-caption Qt/system helper windows when matching hidden tray windows
-                int style = GetWindowLong(hWnd, GWL_STYLE);
-                bool hasCaption = (style & WS_CAPTION) == WS_CAPTION;
-                if (!titleMatched && !hasCaption) return true;
-
-                if (IsWindowVisible(hWnd))
+                else if (titleMatched)
                 {
-                    visibleMatch = hWnd;
-                    return false;
-                }
-
-                if (hiddenMatch == IntPtr.Zero && (titleMatched || hasCaption))
-                {
-                    hiddenMatch = hWnd;
+                    if (isVisible && visibleTitleMain == IntPtr.Zero) visibleTitleMain = hWnd;
+                    else if (!isVisible && hiddenTitleMain == IntPtr.Zero) hiddenTitleMain = hWnd;
                 }
 
                 return true;
             }, IntPtr.Zero);
 
-            return visibleMatch != IntPtr.Zero ? visibleMatch : hiddenMatch;
+            if (visiblePidMain != IntPtr.Zero) return visiblePidMain;
+            if (hiddenPidMain != IntPtr.Zero) return hiddenPidMain;
+            if (fallbackMainHandle != IntPtr.Zero) return fallbackMainHandle;
+            if (visibleTitleMain != IntPtr.Zero) return visibleTitleMain;
+            return hiddenTitleMain;
         }
 
-        private static void RestoreAndFocusWindow(IntPtr hWnd)
+        private static void RestoreAndFocusWindow(IntPtr hWnd, out bool accessDenied)
         {
+            accessDenied = false;
             try
             {
+                WINDOWPLACEMENT placement = new WINDOWPLACEMENT
+                {
+                    length = Marshal.SizeOf<WINDOWPLACEMENT>()
+                };
+                bool hasPlacement = GetWindowPlacement(hWnd, ref placement);
+                bool wasMaximized = hasPlacement &&
+                    ((placement.flags & WPF_RESTORETOMAXIMIZED) != 0 || placement.showCmd == SW_SHOWMAXIMIZED);
+
                 if (!IsWindowVisible(hWnd))
                 {
                     ShowWindow(hWnd, SW_SHOW);
+                    ShowWindowAsync(hWnd, SW_SHOW);
                 }
-                if (IsIconic(hWnd))
+
+                if (IsIconic(hWnd) || (hasPlacement && placement.showCmd == SW_SHOWMINIMIZED))
                 {
-                    ShowWindow(hWnd, SW_RESTORE);
+                    int restoreCmd = wasMaximized ? SW_SHOWMAXIMIZED : SW_RESTORE;
+                    ShowWindow(hWnd, restoreCmd);
+                    ShowWindowAsync(hWnd, restoreCmd);
+                }
+
+                // Force visibility & check UIPI (Access Denied when target is elevated as Administrator)
+                if (!SetWindowPos(hWnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW))
+                {
+                    if (Marshal.GetLastWin32Error() == ERROR_ACCESS_DENIED)
+                    {
+                        accessDenied = true;
+                        return;
+                    }
                 }
 
                 IntPtr fgHwnd = GetForegroundWindow();
                 uint fgThread = fgHwnd != IntPtr.Zero ? GetWindowThreadProcessId(fgHwnd, out _) : 0;
+                uint targetThread = GetWindowThreadProcessId(hWnd, out _);
                 uint curThread = GetCurrentThreadId();
-                bool attached = false;
+                bool attachedFg = false;
+                bool attachedTarget = false;
 
                 if (fgThread != 0 && fgThread != curThread)
                 {
-                    attached = AttachThreadInput(curThread, fgThread, true);
+                    attachedFg = AttachThreadInput(curThread, fgThread, true);
+                }
+                if (targetThread != 0 && targetThread != curThread && targetThread != fgThread)
+                {
+                    attachedTarget = AttachThreadInput(curThread, targetThread, true);
                 }
 
+                SwitchToThisWindow(hWnd, true);
                 BringWindowToTop(hWnd);
                 SetForegroundWindow(hWnd);
 
-                if (attached)
-                {
-                    AttachThreadInput(curThread, fgThread, false);
-                }
+                if (attachedTarget) AttachThreadInput(curThread, targetThread, false);
+                if (attachedFg) AttachThreadInput(curThread, fgThread, false);
             }
             catch (Exception ex)
             {

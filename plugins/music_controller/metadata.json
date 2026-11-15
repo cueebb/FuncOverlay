@@ -1,0 +1,54 @@
+{
+  "id": "music_controller",
+  "name": "music controller",
+  "description": "Media controller with 150x150 album art, slow-scrolling track & artist text, interactive seek bar, transport controls, and audio source selector.",
+  "version": "1.0.0",
+  "author": "FuncOverlay",
+  "entryPoint": "main.py",
+  "language": "python",
+  "position": {
+    "x": 48,
+    "y": 48,
+    "anchor": "top-right",
+    "anchorTarget": "screen",
+    "targetAnchor": "top-right"
+  },
+  "size": {
+    "width": 440,
+    "height": 204
+  },
+  "enabled": true,
+  "locked": false,
+  "widgetType": "music_controller",
+  "settingsSchema": [
+    {
+      "key": "marquee_speed",
+      "label": "Text Scroll Speed (px/s)",
+      "type": "int",
+      "defaultValue": 22,
+      "value": 22,
+      "description": "Slow horizontal scroll speed in pixels per second when the track name or artist does not fit (10-80)."
+    },
+    {
+      "key": "focus_app_on_switch",
+      "label": "Focus App When Selecting Source",
+      "type": "bool",
+      "defaultValue": true,
+      "value": true,
+      "description": "Try to bring the selected media player's window/music focus forward when switching sources from the dropdown."
+    },
+    {
+      "key": "show_source_dropdown",
+      "label": "Show Audio Source Dropdown",
+      "type": "bool",
+      "defaultValue": true,
+      "value": true,
+      "description": "Display the top-right dropdown button to switch which media app to control and capture metadata from."
+    }
+  ],
+  "settings": {
+    "marquee_speed": 22,
+    "focus_app_on_switch": true,
+    "show_source_dropdown": true
+  }
+}

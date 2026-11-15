@@ -184,6 +184,18 @@ namespace FuncOverlay.Core
                         _mainWindow.ReloadOverlayContent();
                         break;
 
+                    case "media.subscribe":
+                        _mainWindow.StartMediaMonitoring();
+                        break;
+
+                    case "media.control":
+                        HandleMediaControl(data);
+                        break;
+
+                    case "media.select_source":
+                        HandleMediaSelectSource(data);
+                        break;
+
                     case "app.quit":
                         System.Windows.Application.Current?.Shutdown();
                         break;
@@ -648,6 +660,28 @@ namespace FuncOverlay.Core
             }
 
             Process.Start(psi);
+        }
+
+        private void HandleMediaControl(JsonElement? data)
+        {
+            if (!data.HasValue || data.Value.ValueKind != JsonValueKind.Object) return;
+            var obj = data.Value;
+            TryGetString(obj, "command", out string? command);
+            TryGetString(obj, "sourceId", out string? sourceId);
+            double? posSec = TryGetDouble(obj, "positionSec", out double p) ? (double?)p : null;
+            if (!string.IsNullOrWhiteSpace(command))
+            {
+                _mainWindow.HandleMediaControlIntent(command, sourceId, posSec);
+            }
+        }
+
+        private void HandleMediaSelectSource(JsonElement? data)
+        {
+            if (!data.HasValue || data.Value.ValueKind != JsonValueKind.Object) return;
+            var obj = data.Value;
+            TryGetString(obj, "sourceId", out string? sourceId);
+            bool focusWindow = !TryGetBool(obj, "focusWindow", out bool fw) || fw;
+            _mainWindow.HandleMediaSelectSourceIntent(sourceId ?? string.Empty, focusWindow);
         }
 
         private void HandleToast(JsonElement? data)

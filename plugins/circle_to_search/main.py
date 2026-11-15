@@ -10,7 +10,6 @@ circle to search - FuncOverlay Python Plugin
 
 import base64
 import ctypes
-import html
 import json
 import os
 import re
@@ -862,7 +861,7 @@ def capture_and_select_region_png() -> bytes | None:
             dst_off = idx * row_bytes
             crop_bgra[dst_off : dst_off + row_bytes] = dib_arr[src_off : src_off + row_bytes]
 
-        return encode_png(bytes(crop_bgra), cw, ch, is_bgra=True)
+        return encode_png(bytes(crop_bgra), cw, ch, is_bgra=True), cw, ch
     finally:
         if hwnd:
             user32.DestroyWindow(hwnd)
@@ -901,88 +900,145 @@ def capture_and_select_region_png() -> bytes | None:
             user32.ReleaseDC(None, hdc_screen)
 
 
-class _CaptureRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def __init__(self):
-        super().__init__()
-        self.captured_locations: list[str] = []
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if newurl:
-            self.captured_locations.append(newurl)
-        # Stop before following to consent/sorry pages so we can inspect immediately
-        lower = (newurl or "").lower()
-        if "consent.google." in lower or "/sorry/" in lower or "accounts.google." in lower:
-            return None
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
-def _upload_to_google_lens_http(png_bytes: bytes) -> str | None:
-    """Upload PNG directly to Google Lens and return the results page URL if successful."""
+def _build_multipart_body(
+    fields: dict[str, str],
+    file_field: str,
+    filename: str,
+    file_bytes: bytes,
+    content_type: str = "image/png",
+) -> tuple[bytes, str]:
     boundary = f"----FuncOverlayCtS{uuid.uuid4().hex}"
-    body = (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="encoded_image"; filename="capture.png"\r\n'
-        f"Content-Type: image/png\r\n\r\n"
-    ).encode("utf-8") + png_bytes + f"\r\n--{boundary}--\r\n".encode("utf-8")
+    chunks: list[bytes] = []
+    for k, v in fields.items():
+        chunks.append(
+            (
+                f"--{boundary}\r\n"
+                f'Content-Disposition: form-data; name="{k}"\r\n\r\n'
+                f"{v}\r\n"
+            ).encode("utf-8")
+        )
+    chunks.append(
+        (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="{file_field}"; filename="{filename}"\r\n'
+            f"Content-Type: {content_type}\r\n\r\n"
+        ).encode("utf-8")
+        + file_bytes
+        + f"\r\n--{boundary}--\r\n".encode("utf-8")
+    )
+    return b"".join(chunks), boundary
 
-    st_ms = int(time.time() * 1000)
-    upload_url = f"https://lens.google.com/v3/upload?hl=en&re=df&st={st_ms}&ep=gisbubb"
 
-    redirect_handler = _CaptureRedirectHandler()
-    opener = urllib.request.build_opener(redirect_handler)
+def _normalize_tmpfiles_direct_url(raw_url: str) -> str:
+    parsed = urllib.parse.urlparse((raw_url or "").strip())
+    if not parsed.netloc:
+        return ""
+    scheme = "https"
+    path = parsed.path or ""
+    if "tmpfiles.org" in parsed.netloc.lower() and path and not path.startswith("/dl/"):
+        path = "/dl" + (path if path.startswith("/") else "/" + path)
+    return urllib.parse.urlunparse((scheme, parsed.netloc, path, "", parsed.query, ""))
+
+
+def _upload_png_litterbox(png_bytes: bytes) -> str | None:
+    body, boundary = _build_multipart_body(
+        {"reqtype": "fileupload", "time": "1h"},
+        "fileToUpload",
+        "capture.png",
+        png_bytes,
+    )
     req = urllib.request.Request(
-        upload_url,
+        "https://litterbox.catbox.moe/resources/internals/api.php",
         data=body,
         method="POST",
         headers={
             "Content-Type": f"multipart/form-data; boundary={boundary}",
             "Content-Length": str(len(body)),
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-            ),
-            "Referer": "https://www.google.com/",
-            "Origin": "https://www.google.com",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Cookie": "SOCS=CAESHAgBEhJnd3NfMjAyNDAxMTAtMF9SQzEaAmVuIAEaBgiA_LyaBg",
+            "User-Agent": "FuncOverlay-CtS/1.0",
         },
     )
-
     try:
-        with opener.open(req, timeout=8) as resp:
-            final_url = resp.geturl() or ""
-            for cand in [final_url, *reversed(redirect_handler.captured_locations)]:
-                cl = cand.lower()
-                if (
-                    cl.startswith(("https://lens.google.com/search", "https://www.google.com/search"))
-                    and "consent.google." not in cl
-                    and "/sorry/" not in cl
-                    and "accounts.google." not in cl
-                ):
-                    return cand
-
-            raw_html = resp.read(262144).decode("utf-8", errors="ignore")
-            m = re.search(
-                r'https://(?:lens|www)\.google\.com/search\?[^"\'\s<>]+',
-                raw_html,
-            )
-            if m:
-                return html.unescape(m.group(0))
-    except urllib.error.HTTPError as e:
-        if e.headers and e.headers.get("Location"):
-            loc = e.headers.get("Location", "")
-            ll = loc.lower()
-            if ll.startswith(("https://lens.google.com/search", "https://www.google.com/search")):
-                return loc
+        with urllib.request.urlopen(req, timeout=7) as resp:
+            txt = resp.read(2048).decode("utf-8", errors="ignore").strip()
+            if txt.startswith(("https://", "http://")):
+                return txt
     except Exception:
         pass
     return None
 
 
-def _create_browser_lens_submit_html(png_bytes: bytes) -> str:
+def _upload_png_tmpfiles(png_bytes: bytes) -> str | None:
+    body, boundary = _build_multipart_body(
+        {},
+        "file",
+        "capture.png",
+        png_bytes,
+    )
+    req = urllib.request.Request(
+        "https://tmpfiles.org/api/v1/upload",
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Content-Length": str(len(body)),
+            "User-Agent": "FuncOverlay-CtS/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=7) as resp:
+            data = json.loads(resp.read(8192).decode("utf-8", errors="ignore"))
+            raw_url = str((data.get("data") or {}).get("url") or "").strip()
+            direct = _normalize_tmpfiles_direct_url(raw_url)
+            if direct.startswith("https://"):
+                return direct
+    except Exception:
+        pass
+    return None
+
+
+def _upload_png_uguu(png_bytes: bytes) -> str | None:
+    body, boundary = _build_multipart_body(
+        {},
+        "files[]",
+        "capture.png",
+        png_bytes,
+    )
+    req = urllib.request.Request(
+        "https://uguu.se/upload",
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Content-Length": str(len(body)),
+            "User-Agent": "FuncOverlay-CtS/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=7) as resp:
+            data = json.loads(resp.read(8192).decode("utf-8", errors="ignore"))
+            files = data.get("files") or []
+            if files and isinstance(files[0], dict):
+                url = str(files[0].get("url") or "").strip()
+                if url.startswith(("https://", "http://")):
+                    return url
+    except Exception:
+        pass
+    return None
+
+
+def _upload_temp_public_png(png_bytes: bytes) -> str | None:
+    """Upload cropped image to an auto-expiring public host so Google Lens can load it via uploadbyurl."""
+    for uploader in (_upload_png_litterbox, _upload_png_tmpfiles, _upload_png_uguu):
+        url = uploader(png_bytes)
+        if url:
+            return url
+    return None
+
+
+def _create_browser_lens_submit_html(png_bytes: bytes, width: int = 0, height: int = 0) -> str:
     """
-    Create a temporary local HTML page that auto-submits the captured PNG via a standard
-    multipart POST form in the user's real browser tab (inherits browser cookies/session).
+    Fallback: create a temporary local HTML page that submits the captured PNG directly from
+    the user's browser tab via multipart POST with processed_image_dimensions.
     """
     temp_dir = Path(tempfile.gettempdir()) / "FuncOverlay_CtS"
     temp_dir.mkdir(parents=True, exist_ok=True)
@@ -996,8 +1052,13 @@ def _create_browser_lens_submit_html(png_bytes: bytes) -> str:
             pass
 
     st_ms = int(now * 1000)
-    action_url = f"https://lens.google.com/v3/upload?hl=en&re=df&st={st_ms}&ep=gisbubb"
+    action_url = f"https://lens.google.com/v3/upload?hl=en&re=df&stcs={st_ms}&vpw=1280&vph=800&ep=gsbubu"
     b64 = base64.b64encode(png_bytes).decode("ascii")
+    dim_input = (
+        f'<input type="hidden" name="processed_image_dimensions" value="{width},{height}" />'
+        if width > 0 and height > 0
+        else ""
+    )
 
     page_html = f"""<!doctype html>
 <html>
@@ -1021,6 +1082,7 @@ def _create_browser_lens_submit_html(png_bytes: bytes) -> str:
 <div>Searching area in Google Lens...</div>
 <form id="f" method="POST" action="{action_url}" enctype="multipart/form-data">
   <input id="inp" type="file" name="encoded_image" style="display:none" />
+  {dim_input}
 </form>
 <script>
 (function() {{
@@ -1048,12 +1110,16 @@ def _create_browser_lens_submit_html(png_bytes: bytes) -> str:
     return out_file.as_uri()
 
 
-def search_image_in_new_tab(png_bytes: bytes) -> bool:
-    result_url = _upload_to_google_lens_http(png_bytes)
-    if result_url:
-        return open_url_in_new_tab(result_url)
+def search_image_in_new_tab(png_bytes: bytes, width: int = 0, height: int = 0) -> bool:
+    # Opening lens.google.com/uploadbyurl?url=<public_url> runs inside the browser's own session
+    # and cookies as a normal top-level GET, avoiding 'Expired visual search' session mismatch.
+    public_url = _upload_temp_public_png(png_bytes)
+    if public_url:
+        encoded = urllib.parse.quote(public_url, safe="")
+        lens_url = f"https://lens.google.com/uploadbyurl?url={encoded}"
+        return open_url_in_new_tab(lens_url)
 
-    fallback_uri = _create_browser_lens_submit_html(png_bytes)
+    fallback_uri = _create_browser_lens_submit_html(png_bytes, width, height)
     return open_url_in_new_tab(fallback_uri)
 
 
@@ -1068,9 +1134,10 @@ def run_region_search_cli(argv: list[str]) -> int:
     else:
         time.sleep(0.035)
 
-    png_bytes = capture_and_select_region_png()
-    if png_bytes:
-        search_image_in_new_tab(png_bytes)
+    captured = capture_and_select_region_png()
+    if captured:
+        png_bytes, cw, ch = captured
+        search_image_in_new_tab(png_bytes, cw, ch)
     return 0
 
 

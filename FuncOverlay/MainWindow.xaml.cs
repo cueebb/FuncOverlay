@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -8,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using FuncOverlay.Core;
@@ -36,6 +38,7 @@ namespace FuncOverlay
         private readonly PluginManager _pluginManager;
         private readonly PluginIntentRouter _intentRouter;
         private readonly PluginHostService _pluginHostService;
+        private readonly MediaSessionService _mediaSessionService;
         private readonly DispatcherTimer _overlayToastTimer;
         private readonly Dictionary<string, Border> _dynamicBodyContainers =
             new Dictionary<string, Border>(StringComparer.OrdinalIgnoreCase);
@@ -47,6 +50,8 @@ namespace FuncOverlay
             new Dictionary<string, Border>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, TextBox> _searchInputBoxes =
             new Dictionary<string, TextBox>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, MediaControllerViewHolder> _mediaViews =
+            new Dictionary<string, MediaControllerViewHolder>(StringComparer.OrdinalIgnoreCase);
 
         private TrayIconManager? _trayManager;
         private bool _isOverlayVisible = true;
@@ -65,6 +70,8 @@ namespace FuncOverlay
             _pluginManager = pluginManager;
             _intentRouter = new PluginIntentRouter(_pluginManager, this);
             _pluginHostService = new PluginHostService(this.Dispatcher, _intentRouter);
+            _mediaSessionService = new MediaSessionService(this.Dispatcher);
+            _mediaSessionService.SnapshotUpdated += OnMediaSnapshotUpdated;
             _pluginHostService.PluginRenderReceived += OnPluginRenderReceived;
             _pluginHostService.PluginHostNotice += msg => ShowOverlayToast(msg, 4500);
 
@@ -169,6 +176,8 @@ namespace FuncOverlay
         {
             if (!_isOverlayVisible) return;
             _isOverlayVisible = false;
+            _mediaSessionService.Stop();
+            foreach (var mv in _mediaViews.Values) mv.CloseSourcePopup();
             _pluginHostService.StopAllOnOverlayClosed();
             AnimateOpacity(0.0);
         }
@@ -176,11 +185,39 @@ namespace FuncOverlay
         public void HideOverlayImmediately()
         {
             _isOverlayVisible = false;
+            _mediaSessionService.Stop();
+            foreach (var mv in _mediaViews.Values) mv.CloseSourcePopup();
             _pluginHostService.StopAllOnOverlayClosed();
             OverlayRootGrid.BeginAnimation(UIElement.OpacityProperty, null);
             OverlayRootGrid.Opacity = 0;
             this.Topmost = false;
             this.Visibility = Visibility.Collapsed;
+        }
+
+        public void StartMediaMonitoring()
+        {
+            if (_isOverlayVisible)
+            {
+                _mediaSessionService.Start();
+            }
+        }
+
+        public void HandleMediaControlIntent(string command, string? sourceId, double? positionSec)
+        {
+            _ = _mediaSessionService.ControlAsync(command, sourceId, positionSec);
+        }
+
+        public void HandleMediaSelectSourceIntent(string sourceId, bool focusWindow)
+        {
+            _ = _mediaSessionService.SelectSourceAsync(sourceId, focusWindow, _windowHandle);
+        }
+
+        private void OnMediaSnapshotUpdated(MediaSnapshot snapshot)
+        {
+            foreach (var mv in _mediaViews.Values)
+            {
+                mv.UpdateSnapshot(snapshot);
+            }
         }
 
         public void ToggleOverlayWithAnimation()
@@ -288,11 +325,14 @@ namespace FuncOverlay
 
         public void ReloadOverlayContent()
         {
+            _mediaSessionService.Stop();
             _pluginHostService.StopAllOnOverlayClosed();
             _dynamicBodyContainers.Clear();
             _pluginCards.Clear();
             _pluginTitleBars.Clear();
             _searchInputBoxes.Clear();
+            foreach (var mv in _mediaViews.Values) mv.CloseSourcePopup();
+            _mediaViews.Clear();
             _draggingPluginId = null;
             PluginsCanvas.Children.Clear();
 
@@ -546,6 +586,15 @@ namespace FuncOverlay
             _latestPayloads[pluginId] = payload;
             if (_dynamicBodyContainers.TryGetValue(pluginId, out Border? bodyHost))
             {
+                if (string.Equals(payload.layout, "media_controller", StringComparison.OrdinalIgnoreCase) &&
+                    _mediaViews.TryGetValue(pluginId, out MediaControllerViewHolder? existingMediaView) &&
+                    ReferenceEquals(bodyHost.Child, existingMediaView.RootElement))
+                {
+                    existingMediaView.ApplyConfig(payload.mediaConfig);
+                    existingMediaView.UpdateSnapshot(_mediaSessionService.LatestSnapshot);
+                    return;
+                }
+
                 bodyHost.Child = BuildInteractiveGrayPluginBody(pluginId, payload);
                 Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(RepositionAllWidgets));
             }
@@ -564,10 +613,12 @@ namespace FuncOverlay
                                         string.Equals(plugin.id, "powertoys_shortcuts", StringComparison.OrdinalIgnoreCase);
             bool isCircleToSearch = string.Equals(plugin.widgetType, "circle_to_search", StringComparison.OrdinalIgnoreCase) ||
                                     string.Equals(plugin.id, "circle_to_search", StringComparison.OrdinalIgnoreCase);
+            bool isMusicController = string.Equals(plugin.widgetType, "music_controller", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(plugin.id, "music_controller", StringComparison.OrdinalIgnoreCase);
 
             double width = plugin.size.width >= 180
                 ? plugin.size.width
-                : (isObsShortcuts ? 252 : (isSimpleCalc ? 256 : ((isShareXShortcuts || isPowerToysShortcuts) ? 296 : (isCircleToSearch ? 348 : 300))));
+                : (isObsShortcuts ? 252 : (isSimpleCalc ? 256 : ((isShareXShortcuts || isPowerToysShortcuts) ? 296 : (isCircleToSearch ? 348 : (isMusicController ? 440 : 300)))));
 
             // Unified Gray Plugin Style
             Border card = new Border
@@ -722,6 +773,10 @@ namespace FuncOverlay
             else if (isCircleToSearch)
             {
                 bodyHost.Child = BuildInteractiveGrayPluginBody(plugin.id, CreateDefaultCircleToSearchPayload());
+            }
+            else if (isMusicController)
+            {
+                bodyHost.Child = BuildInteractiveGrayPluginBody(plugin.id, CreateDefaultMusicControllerPayload());
             }
             else
             {
@@ -986,8 +1041,31 @@ namespace FuncOverlay
             };
         }
 
+        private static PluginRenderPayload CreateDefaultMusicControllerPayload()
+        {
+            return new PluginRenderPayload
+            {
+                type = "render",
+                style = "gray",
+                layout = "media_controller",
+                mediaConfig = new PluginMediaPayload
+                {
+                    marqueeSpeedPxPerSec = 22.0,
+                    focusAppOnSwitch = true,
+                    showSourceDropdown = true
+                },
+                statusItems = new List<PluginStatusItem>()
+            };
+        }
+
         private UIElement BuildInteractiveGrayPluginBody(string pluginId, PluginRenderPayload payload)
         {
+            if (string.Equals(payload.layout, "media_controller", StringComparison.OrdinalIgnoreCase) ||
+                payload.mediaConfig != null)
+            {
+                return BuildMediaControllerPluginBody(pluginId, payload);
+            }
+
             if (string.Equals(payload.layout, "search_bar", StringComparison.OrdinalIgnoreCase) ||
                 payload.searchBar != null)
             {
@@ -1647,16 +1725,24 @@ namespace FuncOverlay
             return buttonBox;
         }
 
-        private void DispatchPluginAction(string pluginId, string actionId, string? query = null)
+        private UIElement BuildMediaControllerPluginBody(string pluginId, PluginRenderPayload payload)
         {
-            if (_pluginHostService.SendAction(pluginId, actionId, query))
+            var holder = new MediaControllerViewHolder(this, pluginId, payload.mediaConfig);
+            _mediaViews[pluginId] = holder;
+            holder.UpdateSnapshot(_mediaSessionService.LatestSnapshot);
+            return holder.RootElement;
+        }
+
+        private void DispatchPluginAction(string pluginId, string actionId, string? query = null, double? value = null)
+        {
+            if (_pluginHostService.SendAction(pluginId, actionId, query, value))
             {
                 return;
             }
 
             // Try restarting plugin host once if it wasn't running yet
             _pluginHostService.StartAllForOpenOverlay(_pluginManager.LoadedPluginFolders);
-            if (_pluginHostService.SendAction(pluginId, actionId, query))
+            if (_pluginHostService.SendAction(pluginId, actionId, query, value))
             {
                 return;
             }
@@ -1849,6 +1935,7 @@ namespace FuncOverlay
 
         protected override void OnClosed(EventArgs e)
         {
+            _mediaSessionService.Dispose();
             _pluginHostService.Dispose();
             if (_windowHandle != IntPtr.Zero)
             {
@@ -1860,6 +1947,843 @@ namespace FuncOverlay
                 _settingsWindow = null;
             }
             base.OnClosed(e);
+        }
+
+        private sealed class MediaControllerViewHolder
+        {
+            private readonly MainWindow _owner;
+            private readonly string _pluginId;
+            private readonly Grid _rootGrid;
+            private readonly System.Windows.Controls.Image _artImage;
+            private readonly UIElement _artPlaceholder;
+            private readonly Canvas _titleViewport;
+            private readonly TextBlock _titleText;
+            private readonly Canvas _artistViewport;
+            private readonly TextBlock _artistText;
+            private readonly Border _sourceButton;
+            private readonly Popup _sourcePopup;
+            private readonly StackPanel _sourceMenuPanel;
+            private readonly Grid _seekContainer;
+            private readonly Border _seekTrackFill;
+            private readonly Border _seekThumb;
+            private readonly TranslateTransform _thumbTransform;
+            private readonly TextBlock _currentTimeText;
+            private readonly TextBlock _totalTimeText;
+            private readonly Border _playPauseCircle;
+
+            private PluginMediaPayload _config;
+            private MediaSnapshot _latestSnapshot = new MediaSnapshot();
+            private string _lastArtKey = string.Empty;
+            private string _lastTitleMarqueeKey = string.Empty;
+            private string _lastArtistMarqueeKey = string.Empty;
+            private bool _isPlayingState;
+            private bool _isDraggingSeek;
+            private double _dragFraction;
+            private DateTime _sourcePopupClosedAtUtc = DateTime.MinValue;
+
+            public UIElement RootElement => _rootGrid;
+
+            public MediaControllerViewHolder(MainWindow owner, string pluginId, PluginMediaPayload? config)
+            {
+                _owner = owner;
+                _pluginId = pluginId;
+                _config = config ?? new PluginMediaPayload();
+
+                _rootGrid = new Grid();
+                _rootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+                _rootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
+                _rootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                // Left 150x150 (1:1) Album Art Container
+                Border artFrame = new Border
+                {
+                    Width = 150,
+                    Height = 150,
+                    CornerRadius = new CornerRadius(10),
+                    Background = new SolidColorBrush(MediaColor.FromRgb(32, 32, 38)),
+                    BorderBrush = new SolidColorBrush(MediaColor.FromRgb(54, 54, 62)),
+                    BorderThickness = new Thickness(1),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Left
+                };
+
+                Grid artClipGrid = new Grid
+                {
+                    Width = 148,
+                    Height = 148,
+                    Clip = new RectangleGeometry(new Rect(0, 0, 148, 148), 9, 9)
+                };
+
+                _artPlaceholder = BuildVectorIconElement(
+                    new[]
+                    {
+                        "M9,17.5 V6.8 L18.5,5 V15.5",
+                        "M6.8,17.5 A2.2,2.2 0 1 0 11.2,17.5 A2.2,2.2 0 1 0 6.8,17.5 Z",
+                        "M16.3,15.5 A2.2,2.2 0 1 0 20.7,15.5 A2.2,2.2 0 1 0 16.3,15.5 Z"
+                    },
+                    new SolidColorBrush(MediaColor.FromRgb(92, 92, 104)),
+                    1.8,
+                    size: 42);
+
+                _artImage = new System.Windows.Controls.Image
+                {
+                    Width = 148,
+                    Height = 148,
+                    Stretch = Stretch.UniformToFill,
+                    Visibility = Visibility.Collapsed
+                };
+                RenderOptions.SetBitmapScalingMode(_artImage, BitmapScalingMode.HighQuality);
+
+                artClipGrid.Children.Add(_artPlaceholder);
+                artClipGrid.Children.Add(_artImage);
+                artFrame.Child = artClipGrid;
+                Grid.SetColumn(artFrame, 0);
+                _rootGrid.Children.Add(artFrame);
+
+                // Right Column (Track Info, Scrollbar, Transport Controls, Top-Right Source Dropdown)
+                Grid rightGrid = new Grid { Height = 150 };
+                rightGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Title + Source button
+                rightGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Artist
+                rightGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // Seek bar + times
+                rightGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Prev / Play / Next
+
+                // Row 0: Track Title (White, Bold) + Top-Right Audio Source Dropdown Button
+                Grid topRow = new Grid();
+                topRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                topRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                _titleViewport = new Canvas
+                {
+                    Height = 23,
+                    ClipToBounds = true,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 8, 0)
+                };
+                _titleText = new TextBlock
+                {
+                    Text = "No active media",
+                    FontFamily = new MediaFontFamily("Segoe UI"),
+                    FontSize = 15,
+                    FontWeight = FontWeights.Bold,
+                    Foreground = new SolidColorBrush(MediaColor.FromRgb(255, 255, 255))
+                };
+                Canvas.SetLeft(_titleText, 0);
+                Canvas.SetTop(_titleText, 1);
+                _titleViewport.Children.Add(_titleText);
+                _titleViewport.SizeChanged += (s, e) => RefreshTitleMarquee(force: true);
+
+                _sourceButton = CreateSourcePickerButton();
+                Grid.SetColumn(_titleViewport, 0);
+                Grid.SetColumn(_sourceButton, 1);
+                topRow.Children.Add(_titleViewport);
+                topRow.Children.Add(_sourceButton);
+                Grid.SetRow(topRow, 0);
+                rightGrid.Children.Add(topRow);
+
+                // Source Selection Popup anchored under top-right button
+                _sourceMenuPanel = new StackPanel { Orientation = Orientation.Vertical };
+                Border popupCard = new Border
+                {
+                    Background = new SolidColorBrush(MediaColor.FromArgb(248, 26, 26, 31)),
+                    BorderBrush = new SolidColorBrush(MediaColor.FromRgb(63, 63, 72)),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(6),
+                    MinWidth = 195,
+                    MaxWidth = 270,
+                    Child = _sourceMenuPanel
+                };
+                popupCard.MouseLeftButtonDown += (s, e) => e.Handled = true;
+
+                _sourcePopup = new Popup
+                {
+                    Child = popupCard,
+                    PlacementTarget = _sourceButton,
+                    Placement = PlacementMode.Bottom,
+                    HorizontalOffset = -168,
+                    VerticalOffset = 4,
+                    AllowsTransparency = true,
+                    StaysOpen = false
+                };
+                _sourcePopup.Closed += (s, e) => _sourcePopupClosedAtUtc = DateTime.UtcNow;
+
+                _sourceButton.MouseLeftButtonDown += (s, e) =>
+                {
+                    if ((DateTime.UtcNow - _sourcePopupClosedAtUtc).TotalMilliseconds < 180)
+                    {
+                        e.Handled = true;
+                        return;
+                    }
+                    RebuildSourcePopupItems();
+                    _sourcePopup.IsOpen = !_sourcePopup.IsOpen;
+                    e.Handled = true;
+                };
+
+                // Row 1: Artist Name (Light Gray, smaller font)
+                _artistViewport = new Canvas
+                {
+                    Height = 19,
+                    ClipToBounds = true,
+                    Margin = new Thickness(0, 3, 28, 0)
+                };
+                _artistText = new TextBlock
+                {
+                    Text = "Open Spotify, Firefox, or any player",
+                    FontFamily = new MediaFontFamily("Segoe UI"),
+                    FontSize = 12.5,
+                    FontWeight = FontWeights.Normal,
+                    Foreground = new SolidColorBrush(MediaColor.FromRgb(180, 180, 190))
+                };
+                Canvas.SetLeft(_artistText, 0);
+                Canvas.SetTop(_artistText, 0);
+                _artistViewport.Children.Add(_artistText);
+                _artistViewport.SizeChanged += (s, e) => RefreshArtistMarquee(force: true);
+                Grid.SetRow(_artistViewport, 1);
+                rightGrid.Children.Add(_artistViewport);
+
+                // Row 2: Seek Bar + Current/Total Time Labels
+                StackPanel timelinePanel = new StackPanel
+                {
+                    Orientation = Orientation.Vertical,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 6, 0, 2)
+                };
+
+                _seekContainer = new Grid
+                {
+                    Height = 18,
+                    Background = MediaBrushes.Transparent,
+                    Cursor = System.Windows.Input.Cursors.Hand
+                };
+                Border railBg = new Border
+                {
+                    Height = 4,
+                    CornerRadius = new CornerRadius(2),
+                    Background = new SolidColorBrush(MediaColor.FromRgb(58, 58, 68)),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                _seekTrackFill = new Border
+                {
+                    Height = 4,
+                    Width = 0,
+                    CornerRadius = new CornerRadius(2),
+                    Background = new SolidColorBrush(MediaColor.FromRgb(244, 244, 245)),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                _thumbTransform = new TranslateTransform(0, 0);
+                _seekThumb = new Border
+                {
+                    Width = 10,
+                    Height = 10,
+                    CornerRadius = new CornerRadius(5),
+                    Background = new SolidColorBrush(MediaColor.FromRgb(255, 255, 255)),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    RenderTransform = _thumbTransform,
+                    Visibility = Visibility.Collapsed
+                };
+
+                _seekContainer.Children.Add(railBg);
+                _seekContainer.Children.Add(_seekTrackFill);
+                _seekContainer.Children.Add(_seekThumb);
+
+                _seekContainer.SizeChanged += (s, e) => UpdateSeekBarVisual();
+                _seekContainer.MouseEnter += (s, e) =>
+                {
+                    if (_latestSnapshot.durationSec > 0) _seekThumb.Visibility = Visibility.Visible;
+                };
+                _seekContainer.MouseLeave += (s, e) =>
+                {
+                    if (!_isDraggingSeek) _seekThumb.Visibility = Visibility.Collapsed;
+                };
+                _seekContainer.MouseLeftButtonDown += (s, e) =>
+                {
+                    if (_latestSnapshot.durationSec <= 0)
+                    {
+                        e.Handled = true;
+                        return;
+                    }
+                    _isDraggingSeek = true;
+                    _seekThumb.Visibility = Visibility.Visible;
+                    _dragFraction = ComputeSeekFraction(e.GetPosition(_seekContainer).X);
+                    _seekContainer.CaptureMouse();
+                    UpdateSeekBarVisual();
+                    e.Handled = true;
+                };
+                _seekContainer.MouseMove += (s, e) =>
+                {
+                    if (!_isDraggingSeek) return;
+                    _dragFraction = ComputeSeekFraction(e.GetPosition(_seekContainer).X);
+                    UpdateSeekBarVisual();
+                };
+                _seekContainer.MouseLeftButtonUp += (s, e) =>
+                {
+                    if (!_isDraggingSeek) return;
+                    _dragFraction = ComputeSeekFraction(e.GetPosition(_seekContainer).X);
+                    _isDraggingSeek = false;
+                    _seekContainer.ReleaseMouseCapture();
+                    if (!_seekContainer.IsMouseOver) _seekThumb.Visibility = Visibility.Collapsed;
+
+                    if (_latestSnapshot.durationSec > 0)
+                    {
+                        double targetSec = _dragFraction * _latestSnapshot.durationSec;
+                        _latestSnapshot.positionSec = targetSec;
+                        UpdateSeekBarVisual();
+                        _owner.DispatchPluginAction(_pluginId, "seek", _latestSnapshot.selectedSourceId, targetSec);
+                    }
+                    e.Handled = true;
+                };
+
+                Grid timeRow = new Grid { Margin = new Thickness(0, 1, 0, 0) };
+                timeRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                timeRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                _currentTimeText = new TextBlock
+                {
+                    Text = "0:00",
+                    FontFamily = new MediaFontFamily("Consolas, Segoe UI"),
+                    FontSize = 10.5,
+                    Foreground = new SolidColorBrush(MediaColor.FromRgb(212, 212, 216))
+                };
+                _totalTimeText = new TextBlock
+                {
+                    Text = "0:00",
+                    FontFamily = new MediaFontFamily("Consolas, Segoe UI"),
+                    FontSize = 10.5,
+                    Foreground = new SolidColorBrush(MediaColor.FromRgb(161, 161, 170)),
+                    HorizontalAlignment = HorizontalAlignment.Right
+                };
+                Grid.SetColumn(_currentTimeText, 0);
+                Grid.SetColumn(_totalTimeText, 1);
+                timeRow.Children.Add(_currentTimeText);
+                timeRow.Children.Add(_totalTimeText);
+
+                timelinePanel.Children.Add(_seekContainer);
+                timelinePanel.Children.Add(timeRow);
+                Grid.SetRow(timelinePanel, 2);
+                rightGrid.Children.Add(timelinePanel);
+
+                // Row 3: Previous, Play/Pause, Next Buttons
+                StackPanel transportPanel = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Bottom
+                };
+
+                Border prevBtn = CreateTransportSmallButton("previous", "Previous Track", new[]
+                {
+                    "M6.5,5.5 V18.5",
+                    "M17.5,6 L9,12 L17.5,18 Z"
+                }, fillInterior: true);
+
+                _playPauseCircle = CreatePlayPauseButton();
+
+                Border nextBtn = CreateTransportSmallButton("next", "Next Track", new[]
+                {
+                    "M6.5,6 L15,12 L6.5,18 Z",
+                    "M17.5,5.5 V18.5"
+                }, fillInterior: true);
+                nextBtn.Margin = new Thickness(12, 0, 0, 0);
+                _playPauseCircle.Margin = new Thickness(12, 0, 0, 0);
+
+                transportPanel.Children.Add(prevBtn);
+                transportPanel.Children.Add(_playPauseCircle);
+                transportPanel.Children.Add(nextBtn);
+                Grid.SetRow(transportPanel, 3);
+                rightGrid.Children.Add(transportPanel);
+
+                Grid.SetColumn(rightGrid, 2);
+                _rootGrid.Children.Add(rightGrid);
+
+                ApplyConfig(config);
+            }
+
+            public void ApplyConfig(PluginMediaPayload? config)
+            {
+                _config = config ?? new PluginMediaPayload();
+                _sourceButton.Visibility = _config.showSourceDropdown ? Visibility.Visible : Visibility.Collapsed;
+                RefreshTitleMarquee(force: true);
+                RefreshArtistMarquee(force: true);
+            }
+
+            public void CloseSourcePopup()
+            {
+                if (_sourcePopup.IsOpen)
+                {
+                    _sourcePopup.IsOpen = false;
+                }
+            }
+
+            public void UpdateSnapshot(MediaSnapshot snapshot)
+            {
+                _latestSnapshot = snapshot ?? new MediaSnapshot();
+
+                if (!_latestSnapshot.hasMedia && _latestSnapshot.sources.Count == 0)
+                {
+                    _titleText.Text = "No active media";
+                    _artistText.Text = "Open Spotify, Firefox, or any player";
+                }
+                else
+                {
+                    _titleText.Text = string.IsNullOrWhiteSpace(_latestSnapshot.title)
+                        ? (_latestSnapshot.selectedSourceName ?? "Media")
+                        : _latestSnapshot.title;
+                    _artistText.Text = string.IsNullOrWhiteSpace(_latestSnapshot.artist)
+                        ? _latestSnapshot.selectedSourceName
+                        : _latestSnapshot.artist;
+                }
+
+                RefreshTitleMarquee(force: false);
+                RefreshArtistMarquee(force: false);
+                UpdateAlbumArt(_latestSnapshot.albumArtKey, _latestSnapshot.albumArtBase64);
+                UpdatePlayPauseVisual(_latestSnapshot.isPlaying);
+
+                if (!_isDraggingSeek)
+                {
+                    UpdateSeekBarVisual();
+                }
+
+                if (_sourcePopup.IsOpen)
+                {
+                    RebuildSourcePopupItems();
+                }
+            }
+
+            private void UpdateAlbumArt(string artKey, string? base64)
+            {
+                if (string.Equals(_lastArtKey, artKey, StringComparison.Ordinal) &&
+                    !string.IsNullOrEmpty(base64) == (_artImage.Visibility == Visibility.Visible))
+                {
+                    return;
+                }
+
+                _lastArtKey = artKey;
+                if (string.IsNullOrWhiteSpace(base64))
+                {
+                    _artImage.Source = null;
+                    _artImage.Visibility = Visibility.Collapsed;
+                    _artPlaceholder.Visibility = Visibility.Visible;
+                    return;
+                }
+
+                try
+                {
+                    byte[] bytes = Convert.FromBase64String(base64);
+                    using var ms = new MemoryStream(bytes);
+                    BitmapImage bmp = new BitmapImage();
+                    bmp.BeginInit();
+                    bmp.CacheOption = BitmapCacheOption.OnLoad;
+                    bmp.StreamSource = ms;
+                    bmp.EndInit();
+                    bmp.Freeze();
+
+                    _artImage.Source = bmp;
+                    _artImage.Visibility = Visibility.Visible;
+                    _artPlaceholder.Visibility = Visibility.Collapsed;
+                }
+                catch
+                {
+                    _artImage.Source = null;
+                    _artImage.Visibility = Visibility.Collapsed;
+                    _artPlaceholder.Visibility = Visibility.Visible;
+                }
+            }
+
+            private void RefreshTitleMarquee(bool force)
+            {
+                double vw = _titleViewport.ActualWidth;
+                double speed = Math.Clamp(_config.marqueeSpeedPxPerSec, 8.0, 80.0);
+                string key = $"{_titleText.Text}|{Math.Round(vw)}|{speed:F1}";
+                if (!force && string.Equals(_lastTitleMarqueeKey, key, StringComparison.Ordinal)) return;
+                _lastTitleMarqueeKey = key;
+                ApplyMarqueeAnimation(_titleViewport, _titleText, speed);
+            }
+
+            private void RefreshArtistMarquee(bool force)
+            {
+                double vw = _artistViewport.ActualWidth;
+                double speed = Math.Clamp(_config.marqueeSpeedPxPerSec, 8.0, 80.0);
+                string key = $"{_artistText.Text}|{Math.Round(vw)}|{speed:F1}";
+                if (!force && string.Equals(_lastArtistMarqueeKey, key, StringComparison.Ordinal)) return;
+                _lastArtistMarqueeKey = key;
+                ApplyMarqueeAnimation(_artistViewport, _artistText, speed);
+            }
+
+            private static void ApplyMarqueeAnimation(Canvas viewport, TextBlock tb, double speedPxPerSec)
+            {
+                tb.BeginAnimation(Canvas.LeftProperty, null);
+                Canvas.SetLeft(tb, 0);
+
+                double viewWidth = viewport.ActualWidth;
+                if (viewWidth <= 8) return;
+
+                tb.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+                double textWidth = tb.DesiredSize.Width;
+                if (textWidth <= viewWidth + 2)
+                {
+                    return;
+                }
+
+                double distance = (textWidth - viewWidth) + 12.0;
+                double scrollDurationSec = Math.Max(1.2, distance / speedPxPerSec);
+                double returnDurationSec = Math.Max(0.8, scrollDurationSec * 0.5);
+
+                double t1 = 1.4;
+                double t2 = t1 + scrollDurationSec;
+                double t3 = t2 + 1.2;
+                double t4 = t3 + returnDurationSec;
+
+                var anim = new DoubleAnimationUsingKeyFrames
+                {
+                    RepeatBehavior = RepeatBehavior.Forever
+                };
+                anim.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+                anim.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(t1))));
+                anim.KeyFrames.Add(new LinearDoubleKeyFrame(-distance, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(t2))));
+                anim.KeyFrames.Add(new LinearDoubleKeyFrame(-distance, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(t3))));
+                anim.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(t4))));
+
+                tb.BeginAnimation(Canvas.LeftProperty, anim);
+            }
+
+            private double ComputeSeekFraction(double mouseX)
+            {
+                double w = _seekContainer.ActualWidth;
+                if (w <= 0) return 0;
+                return Math.Clamp(mouseX / w, 0.0, 1.0);
+            }
+
+            private void UpdateSeekBarVisual()
+            {
+                double dur = _latestSnapshot.durationSec;
+                double pos = _isDraggingSeek && dur > 0
+                    ? _dragFraction * dur
+                    : _latestSnapshot.positionSec;
+
+                double frac = dur > 0 ? Math.Clamp(pos / dur, 0.0, 1.0) : 0.0;
+                double w = _seekContainer.ActualWidth;
+                if (w > 0)
+                {
+                    _seekTrackFill.Width = Math.Max(0, w * frac);
+                    double thumbX = Math.Clamp((w * frac) - 5.0, 0.0, Math.Max(0.0, w - 10.0));
+                    _thumbTransform.X = thumbX;
+                }
+
+                _currentTimeText.Text = FormatDuration(pos);
+                _totalTimeText.Text = dur > 0 ? FormatDuration(dur) : "0:00";
+            }
+
+            private static string FormatDuration(double seconds)
+            {
+                if (double.IsNaN(seconds) || seconds < 0) seconds = 0;
+                TimeSpan ts = TimeSpan.FromSeconds(seconds);
+                return ts.TotalHours >= 1.0
+                    ? $"{(int)ts.TotalHours}:{ts.Minutes:D2}:{ts.Seconds:D2}"
+                    : $"{ts.Minutes}:{ts.Seconds:D2}";
+            }
+
+            private Border CreateSourcePickerButton()
+            {
+                SolidColorBrush idleBg = new SolidColorBrush(MediaColor.FromRgb(38, 38, 45));
+                SolidColorBrush hoverBg = new SolidColorBrush(MediaColor.FromRgb(56, 56, 66));
+
+                Border btn = new Border
+                {
+                    Width = 26,
+                    Height = 26,
+                    CornerRadius = new CornerRadius(6),
+                    Background = idleBg,
+                    BorderBrush = new SolidColorBrush(MediaColor.FromRgb(63, 63, 72)),
+                    BorderThickness = new Thickness(1),
+                    Cursor = System.Windows.Input.Cursors.Hand,
+                    ToolTip = new System.Windows.Controls.ToolTip
+                    {
+                        Content = "Choose Audio Source App",
+                        Background = new SolidColorBrush(MediaColor.FromRgb(24, 24, 27)),
+                        Foreground = MediaBrushes.White,
+                        BorderBrush = new SolidColorBrush(MediaColor.FromRgb(63, 63, 70))
+                    }
+                };
+
+                btn.Child = BuildVectorIconElement(
+                    new[]
+                    {
+                        "M4,7 H14 M4,12 H11 M4,17 H11",
+                        "M15,14 L18,17 L21,14"
+                    },
+                    new SolidColorBrush(MediaColor.FromRgb(212, 212, 216)),
+                    1.8,
+                    size: 14);
+
+                btn.MouseEnter += (s, e) => btn.Background = hoverBg;
+                btn.MouseLeave += (s, e) => btn.Background = idleBg;
+                return btn;
+            }
+
+            private void RebuildSourcePopupItems()
+            {
+                _sourceMenuPanel.Children.Clear();
+                _sourceMenuPanel.Children.Add(new TextBlock
+                {
+                    Text = "Audio Sources",
+                    FontSize = 10,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(MediaColor.FromRgb(161, 161, 170)),
+                    Margin = new Thickness(6, 2, 6, 5)
+                });
+
+                var sources = _latestSnapshot.sources;
+                if (sources == null || sources.Count == 0)
+                {
+                    _sourceMenuPanel.Children.Add(new TextBlock
+                    {
+                        Text = "No active media apps detected",
+                        FontSize = 11.5,
+                        Foreground = new SolidColorBrush(MediaColor.FromRgb(140, 140, 150)),
+                        Margin = new Thickness(6, 4, 6, 4)
+                    });
+                    return;
+                }
+
+                SolidColorBrush rowHover = new SolidColorBrush(MediaColor.FromRgb(52, 52, 60));
+                SolidColorBrush rowSelected = new SolidColorBrush(MediaColor.FromRgb(42, 42, 50));
+
+                foreach (var src in sources)
+                {
+                    bool isSelected = string.Equals(src.id, _latestSnapshot.selectedSourceId, StringComparison.OrdinalIgnoreCase);
+
+                    Border row = new Border
+                    {
+                        CornerRadius = new CornerRadius(6),
+                        Padding = new Thickness(8, 6, 8, 6),
+                        Margin = new Thickness(0, 1, 0, 1),
+                        Background = isSelected ? rowSelected : MediaBrushes.Transparent,
+                        Cursor = System.Windows.Input.Cursors.Hand
+                    };
+
+                    Grid rowGrid = new Grid();
+                    rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                    Ellipse statusDot = new Ellipse
+                    {
+                        Width = 7,
+                        Height = 7,
+                        Fill = src.isPlaying
+                            ? new SolidColorBrush(MediaColor.FromRgb(34, 197, 94))
+                            : new SolidColorBrush(MediaColor.FromRgb(113, 113, 122)),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 0, 8, 0)
+                    };
+
+                    StackPanel labels = new StackPanel { Orientation = Orientation.Vertical };
+                    labels.Children.Add(new TextBlock
+                    {
+                        Text = src.name,
+                        FontSize = 12,
+                        FontWeight = isSelected ? FontWeights.SemiBold : FontWeights.Normal,
+                        Foreground = MediaBrushes.White,
+                        TextTrimming = TextTrimming.CharacterEllipsis
+                    });
+                    if (!string.IsNullOrWhiteSpace(src.trackSummary))
+                    {
+                        labels.Children.Add(new TextBlock
+                        {
+                            Text = src.trackSummary,
+                            FontSize = 10,
+                            Foreground = new SolidColorBrush(MediaColor.FromRgb(161, 161, 170)),
+                            TextTrimming = TextTrimming.CharacterEllipsis,
+                            MaxWidth = 170
+                        });
+                    }
+
+                    TextBlock check = new TextBlock
+                    {
+                        Text = isSelected ? "✓" : string.Empty,
+                        FontSize = 11.5,
+                        FontWeight = FontWeights.Bold,
+                        Foreground = new SolidColorBrush(MediaColor.FromRgb(228, 228, 231)),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(8, 0, 0, 0)
+                    };
+
+                    Grid.SetColumn(statusDot, 0);
+                    Grid.SetColumn(labels, 1);
+                    Grid.SetColumn(check, 2);
+                    rowGrid.Children.Add(statusDot);
+                    rowGrid.Children.Add(labels);
+                    rowGrid.Children.Add(check);
+                    row.Child = rowGrid;
+
+                    row.MouseEnter += (s, e) => row.Background = rowHover;
+                    row.MouseLeave += (s, e) => row.Background = isSelected ? rowSelected : MediaBrushes.Transparent;
+                    row.MouseLeftButtonDown += (s, e) =>
+                    {
+                        _sourcePopup.IsOpen = false;
+                        _owner.DispatchPluginAction(_pluginId, "select_source", src.id);
+                        e.Handled = true;
+                    };
+
+                    _sourceMenuPanel.Children.Add(row);
+                }
+            }
+
+            private Border CreateTransportSmallButton(string actionId, string tooltip, string[] paths, bool fillInterior)
+            {
+                SolidColorBrush idleBg = MediaBrushes.Transparent;
+                SolidColorBrush hoverBg = new SolidColorBrush(MediaColor.FromRgb(56, 56, 65));
+                SolidColorBrush pressedBg = new SolidColorBrush(MediaColor.FromRgb(74, 74, 86));
+
+                Border btn = new Border
+                {
+                    Width = 34,
+                    Height = 34,
+                    CornerRadius = new CornerRadius(17),
+                    Background = idleBg,
+                    Cursor = System.Windows.Input.Cursors.Hand,
+                    ToolTip = new System.Windows.Controls.ToolTip
+                    {
+                        Content = tooltip,
+                        Background = new SolidColorBrush(MediaColor.FromRgb(24, 24, 27)),
+                        Foreground = MediaBrushes.White,
+                        BorderBrush = new SolidColorBrush(MediaColor.FromRgb(63, 63, 70))
+                    }
+                };
+
+                btn.Child = BuildFilledVectorIcon(
+                    paths,
+                    new SolidColorBrush(MediaColor.FromRgb(228, 228, 231)),
+                    1.6,
+                    size: 16,
+                    fill: fillInterior);
+
+                btn.MouseEnter += (s, e) => btn.Background = hoverBg;
+                btn.MouseLeave += (s, e) => btn.Background = idleBg;
+                btn.MouseLeftButtonDown += (s, e) =>
+                {
+                    btn.Background = pressedBg;
+                    _owner.DispatchPluginAction(_pluginId, actionId, _latestSnapshot.selectedSourceId);
+                    e.Handled = true;
+                };
+                btn.MouseLeftButtonUp += (s, e) =>
+                {
+                    btn.Background = btn.IsMouseOver ? hoverBg : idleBg;
+                    e.Handled = true;
+                };
+                return btn;
+            }
+
+            private Border CreatePlayPauseButton()
+            {
+                SolidColorBrush idleBg = new SolidColorBrush(MediaColor.FromRgb(244, 244, 245));
+                SolidColorBrush hoverBg = new SolidColorBrush(MediaColor.FromRgb(255, 255, 255));
+                SolidColorBrush pressedBg = new SolidColorBrush(MediaColor.FromRgb(212, 212, 216));
+
+                Border btn = new Border
+                {
+                    Width = 40,
+                    Height = 40,
+                    CornerRadius = new CornerRadius(20),
+                    Background = idleBg,
+                    Cursor = System.Windows.Input.Cursors.Hand,
+                    ToolTip = new System.Windows.Controls.ToolTip
+                    {
+                        Content = "Play / Pause",
+                        Background = new SolidColorBrush(MediaColor.FromRgb(24, 24, 27)),
+                        Foreground = MediaBrushes.White,
+                        BorderBrush = new SolidColorBrush(MediaColor.FromRgb(63, 63, 70))
+                    }
+                };
+
+                btn.MouseEnter += (s, e) => btn.Background = hoverBg;
+                btn.MouseLeave += (s, e) => btn.Background = idleBg;
+                btn.MouseLeftButtonDown += (s, e) =>
+                {
+                    btn.Background = pressedBg;
+                    _owner.DispatchPluginAction(_pluginId, "play_pause", _latestSnapshot.selectedSourceId);
+                    e.Handled = true;
+                };
+                btn.MouseLeftButtonUp += (s, e) =>
+                {
+                    btn.Background = btn.IsMouseOver ? hoverBg : idleBg;
+                    e.Handled = true;
+                };
+
+                _isPlayingState = false;
+                btn.Child = BuildPlayIcon(false);
+                return btn;
+            }
+
+            private void UpdatePlayPauseVisual(bool isPlaying)
+            {
+                if (_isPlayingState == isPlaying && _playPauseCircle.Child != null) return;
+                _isPlayingState = isPlaying;
+                _playPauseCircle.Child = BuildPlayIcon(isPlaying);
+            }
+
+            private static UIElement BuildPlayIcon(bool isPlaying)
+            {
+                MediaBrush darkBrush = new SolidColorBrush(MediaColor.FromRgb(24, 24, 27));
+                if (isPlaying)
+                {
+                    return BuildFilledVectorIcon(
+                        new[] { "M7,5.5 H10.2 V18.5 H7 Z M13.8,5.5 H17 V18.5 H13.8 Z" },
+                        darkBrush,
+                        1.0,
+                        size: 17,
+                        fill: true);
+                }
+
+                return BuildFilledVectorIcon(
+                    new[] { "M8.2,5.5 L18.5,12 L8.2,18.5 Z" },
+                    darkBrush,
+                    1.0,
+                    size: 17,
+                    fill: true);
+            }
+
+            private static UIElement BuildFilledVectorIcon(
+                IEnumerable<string> pathDataList,
+                MediaBrush brush,
+                double strokeThickness,
+                double size,
+                bool fill)
+            {
+                Viewbox box = new Viewbox
+                {
+                    Width = size,
+                    Height = size,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Canvas canvas = new Canvas { Width = 24, Height = 24 };
+
+                foreach (string raw in pathDataList)
+                {
+                    if (string.IsNullOrWhiteSpace(raw)) continue;
+                    try
+                    {
+                        Geometry geom = Geometry.Parse(raw.Trim());
+                        canvas.Children.Add(new System.Windows.Shapes.Path
+                        {
+                            Fill = fill ? brush : null,
+                            Stroke = brush,
+                            StrokeThickness = strokeThickness,
+                            StrokeStartLineCap = PenLineCap.Round,
+                            StrokeEndLineCap = PenLineCap.Round,
+                            StrokeLineJoin = PenLineJoin.Round,
+                            Data = geom
+                        });
+                    }
+                    catch { }
+                }
+
+                box.Child = canvas;
+                return box;
+            }
         }
     }
 }

@@ -61,12 +61,20 @@ namespace FuncOverlay.Core
         public string? initialText { get; set; }
     }
 
+    public class PluginMediaPayload
+    {
+        public double marqueeSpeedPxPerSec { get; set; } = 24.0;
+        public bool focusAppOnSwitch { get; set; } = true;
+        public bool showSourceDropdown { get; set; } = true;
+    }
+
     public class PluginRenderPayload
     {
         public string type { get; set; } = "render";
         public string style { get; set; } = "gray";
         public string? layout { get; set; }
         public PluginSearchBarPayload? searchBar { get; set; }
+        public PluginMediaPayload? mediaConfig { get; set; }
         public PluginDisplayPayload? display { get; set; }
         public List<List<PluginKeypadButton>>? keypad { get; set; }
         public List<PluginRenderButton> buttons { get; set; } = new List<PluginRenderButton>();
@@ -508,25 +516,20 @@ namespace FuncOverlay.Core
             }
         }
 
-        public bool SendAction(string pluginId, string actionId, string? query = null)
+        public bool SendAction(string pluginId, string actionId, string? query = null, double? value = null)
         {
             if (_running.TryGetValue(pluginId, out RunningPluginProcess? runner))
             {
                 if (!runner.Process.HasExited)
                 {
-                    object payload = query != null
-                        ? new
-                        {
-                            @event = "ui_action",
-                            action = actionId,
-                            query = query
-                        }
-                        : new
-                        {
-                            @event = "ui_action",
-                            action = actionId
-                        };
-                    return runner.WriteJsonLine(payload);
+                    var dict = new Dictionary<string, object?>
+                    {
+                        ["event"] = "ui_action",
+                        ["action"] = actionId
+                    };
+                    if (query != null) dict["query"] = query;
+                    if (value.HasValue) dict["value"] = value.Value;
+                    return runner.WriteJsonLine(dict);
                 }
             }
             return false;

@@ -1,0 +1,54 @@
+{
+  "id": "circle_to_search",
+  "name": "circle to search",
+  "description": "Google-style search bar with text search in a new default browser tab and screen-region photo search.",
+  "version": "1.0.0",
+  "author": "FuncOverlay",
+  "entryPoint": "main.py",
+  "language": "python",
+  "position": {
+    "x": 0,
+    "y": 48,
+    "anchor": "top-center",
+    "anchorTarget": "screen",
+    "targetAnchor": "top-center"
+  },
+  "size": {
+    "width": 360,
+    "height": 96
+  },
+  "enabled": true,
+  "locked": false,
+  "widgetType": "circle_to_search",
+  "settingsSchema": [
+    {
+      "key": "search_url_template",
+      "label": "Text Search URL",
+      "type": "string",
+      "defaultValue": "https://www.google.com/search?q={query}",
+      "value": "https://www.google.com/search?q={query}",
+      "description": "URL template opened in a new browser tab when searching text ({query} is replaced with your text)."
+    },
+    {
+      "key": "placeholder_text",
+      "label": "Search Bar Hint",
+      "type": "string",
+      "defaultValue": "Find in Google",
+      "value": "Find in Google",
+      "description": "Placeholder hint displayed inside the search bar."
+    },
+    {
+      "key": "close_on_text_search",
+      "label": "Close Overlay on Text Search",
+      "type": "bool",
+      "defaultValue": true,
+      "value": true,
+      "description": "Close FuncOverlay automatically after opening a text search tab."
+    }
+  ],
+  "settings": {
+    "search_url_template": "https://www.google.com/search?q={query}",
+    "placeholder_text": "Find in Google",
+    "close_on_text_search": true
+  }
+}

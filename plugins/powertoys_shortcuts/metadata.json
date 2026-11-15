@@ -44,20 +44,11 @@
       "defaultValue": true,
       "value": true,
       "description": "Start PowerToys automatically before triggering a tool if PowerToys is not running."
-    },
-    {
-      "key": "additional_sleep_ms",
-      "label": "Additional Sleep",
-      "type": "int",
-      "defaultValue": 100,
-      "value": 100,
-      "description": "Extra wait (ms) after overlay fade before sending hotkey. Only applies to Always on Top (AOT) and Crop and Lock (CAL). Default: 100 ms."
     }
   ],
   "settings": {
     "powertoys_exe_path": "C:\\Program Files\\PowerToys\\PowerToys.exe",
     "crop_lock_mode": "screenshot",
-    "auto_launch_powertoys": true,
-    "additional_sleep_ms": 100
+    "auto_launch_powertoys": true
   }
 }

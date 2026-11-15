@@ -45,6 +45,8 @@ namespace FuncOverlay
             new Dictionary<string, (PluginFolderItem Folder, Border Card)>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, Border> _pluginTitleBars =
             new Dictionary<string, Border>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, TextBox> _searchInputBoxes =
+            new Dictionary<string, TextBox>(StringComparer.OrdinalIgnoreCase);
 
         private TrayIconManager? _trayManager;
         private bool _isOverlayVisible = true;
@@ -290,6 +292,7 @@ namespace FuncOverlay
             _dynamicBodyContainers.Clear();
             _pluginCards.Clear();
             _pluginTitleBars.Clear();
+            _searchInputBoxes.Clear();
             _draggingPluginId = null;
             PluginsCanvas.Children.Clear();
 
@@ -559,10 +562,12 @@ namespace FuncOverlay
                                      string.Equals(plugin.id, "sharex_shortcuts", StringComparison.OrdinalIgnoreCase);
             bool isPowerToysShortcuts = string.Equals(plugin.widgetType, "powertoys_shortcuts", StringComparison.OrdinalIgnoreCase) ||
                                         string.Equals(plugin.id, "powertoys_shortcuts", StringComparison.OrdinalIgnoreCase);
+            bool isCircleToSearch = string.Equals(plugin.widgetType, "circle_to_search", StringComparison.OrdinalIgnoreCase) ||
+                                    string.Equals(plugin.id, "circle_to_search", StringComparison.OrdinalIgnoreCase);
 
             double width = plugin.size.width >= 180
                 ? plugin.size.width
-                : (isObsShortcuts ? 252 : (isSimpleCalc ? 256 : ((isShareXShortcuts || isPowerToysShortcuts) ? 296 : 300)));
+                : (isObsShortcuts ? 252 : (isSimpleCalc ? 256 : ((isShareXShortcuts || isPowerToysShortcuts) ? 296 : (isCircleToSearch ? 348 : 300))));
 
             // Unified Gray Plugin Style
             Border card = new Border
@@ -713,6 +718,10 @@ namespace FuncOverlay
             else if (isPowerToysShortcuts)
             {
                 bodyHost.Child = BuildInteractiveGrayPluginBody(plugin.id, CreateDefaultPowerToysShortcutsPayload());
+            }
+            else if (isCircleToSearch)
+            {
+                bodyHost.Child = BuildInteractiveGrayPluginBody(plugin.id, CreateDefaultCircleToSearchPayload());
             }
             else
             {
@@ -934,8 +943,57 @@ namespace FuncOverlay
             };
         }
 
+        private static PluginRenderPayload CreateDefaultCircleToSearchPayload()
+        {
+            return new PluginRenderPayload
+            {
+                type = "render",
+                style = "gray",
+                layout = "search_bar",
+                searchBar = new PluginSearchBarPayload
+                {
+                    placeholder = "Find in Google",
+                    submitAction = "search_text"
+                },
+                buttons = new List<PluginRenderButton>
+                {
+                    new PluginRenderButton
+                    {
+                        id = "search_text",
+                        icon = "search",
+                        tooltip = "Search in Default Browser (New Tab)",
+                        iconPaths = new List<string>
+                        {
+                            "M10.5,4 A6.5,6.5 0 1 0 10.5,17 A6.5,6.5 0 1 0 10.5,4 Z",
+                            "M15.3,15.3 L20,20"
+                        }
+                    },
+                    new PluginRenderButton
+                    {
+                        id = "photo_search",
+                        icon = "photo_search",
+                        tooltip = "Visual Search (Select Screen Region)",
+                        iconPaths = new List<string>
+                        {
+                            "M4,8.5 V6.5 A2.5,2.5 0 0 1 6.5,4 H8.5 M15.5,4 H17.5 A2.5,2.5 0 0 1 20,6.5 V8.5",
+                            "M4,15.5 V17.5 A2.5,2.5 0 0 0 6.5,20 H8.5 M15.5,20 H17.5 A2.5,2.5 0 0 0 20,17.5 V15.5",
+                            "M12,9 A3,3 0 1 0 12,15 A3,3 0 1 0 12,9 Z",
+                            "M16.8,16.8 L16.85,16.8"
+                        }
+                    }
+                },
+                statusItems = new List<PluginStatusItem>()
+            };
+        }
+
         private UIElement BuildInteractiveGrayPluginBody(string pluginId, PluginRenderPayload payload)
         {
+            if (string.Equals(payload.layout, "search_bar", StringComparison.OrdinalIgnoreCase) ||
+                payload.searchBar != null)
+            {
+                return BuildSearchBarPluginBody(pluginId, payload);
+            }
+
             if (string.Equals(payload.layout, "calculator", StringComparison.OrdinalIgnoreCase) ||
                 (payload.keypad != null && payload.keypad.Count > 0))
             {
@@ -1016,6 +1074,212 @@ namespace FuncOverlay
             }
 
             return container;
+        }
+
+        private UIElement BuildSearchBarPluginBody(string pluginId, PluginRenderPayload payload)
+        {
+            PluginSearchBarPayload cfg = payload.searchBar ?? new PluginSearchBarPayload
+            {
+                placeholder = "Find in Google",
+                submitAction = "search_text"
+            };
+            string placeholder = string.IsNullOrEmpty(cfg.placeholder) ? "Find in Google" : cfg.placeholder;
+            string submitAction = string.IsNullOrEmpty(cfg.submitAction) ? "search_text" : cfg.submitAction;
+
+            string preservedText = string.Empty;
+            if (cfg.initialText != null)
+            {
+                preservedText = cfg.initialText;
+            }
+            else if (_searchInputBoxes.TryGetValue(pluginId, out TextBox? previousBox))
+            {
+                preservedText = previousBox.Text;
+            }
+
+            SolidColorBrush idlePillBg = new SolidColorBrush(MediaColor.FromRgb(45, 45, 51));   // #2D2D33
+            SolidColorBrush activePillBg = new SolidColorBrush(MediaColor.FromRgb(54, 54, 62)); // #36363E
+            SolidColorBrush pillBorder = new SolidColorBrush(MediaColor.FromRgb(68, 68, 76));   // #44444C
+
+            Border ovalBar = new Border
+            {
+                Height = 44,
+                CornerRadius = new CornerRadius(22),
+                Background = idlePillBg,
+                BorderBrush = pillBorder,
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(16, 0, 6, 0),
+                Cursor = System.Windows.Input.Cursors.IBeam
+            };
+
+            Grid barGrid = new Grid();
+            barGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            barGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            Grid inputArea = new Grid
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+
+            TextBlock placeholderText = new TextBlock
+            {
+                Text = placeholder,
+                FontFamily = new MediaFontFamily("Segoe UI"),
+                FontSize = 13.5,
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(146, 146, 156)),
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false,
+                Visibility = string.IsNullOrEmpty(preservedText) ? Visibility.Visible : Visibility.Collapsed
+            };
+
+            TextBox queryBox = new TextBox
+            {
+                Text = preservedText,
+                FontFamily = new MediaFontFamily("Segoe UI"),
+                FontSize = 13.5,
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(244, 244, 245)),
+                CaretBrush = new SolidColorBrush(MediaColor.FromRgb(244, 244, 245)),
+                SelectionBrush = new SolidColorBrush(MediaColor.FromRgb(82, 82, 91)),
+                Background = MediaBrushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(0),
+                VerticalContentAlignment = VerticalAlignment.Center,
+                AcceptsReturn = false
+            };
+            _searchInputBoxes[pluginId] = queryBox;
+
+            queryBox.TextChanged += (s, e) =>
+            {
+                placeholderText.Visibility = string.IsNullOrEmpty(queryBox.Text)
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            };
+            queryBox.GotKeyboardFocus += (s, e) => ovalBar.Background = activePillBg;
+            queryBox.LostKeyboardFocus += (s, e) => ovalBar.Background = idlePillBg;
+            queryBox.PreviewKeyDown += (s, e) =>
+            {
+                if (e.Key == Key.Enter)
+                {
+                    string q = queryBox.Text;
+                    DispatchPluginAction(pluginId, submitAction, q);
+                    if (!string.IsNullOrWhiteSpace(q))
+                    {
+                        queryBox.Text = string.Empty;
+                    }
+                    e.Handled = true;
+                }
+                else if (e.Key == Key.Escape && _isOverlayVisible)
+                {
+                    HideOverlayWithAnimation();
+                    e.Handled = true;
+                }
+            };
+
+            inputArea.Children.Add(placeholderText);
+            inputArea.Children.Add(queryBox);
+            Grid.SetColumn(inputArea, 0);
+            barGrid.Children.Add(inputArea);
+
+            StackPanel actionPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            if (payload.buttons != null)
+            {
+                for (int i = 0; i < payload.buttons.Count; i++)
+                {
+                    PluginRenderButton btn = payload.buttons[i];
+                    Border circleBtn = CreateBorderlessRoundIconButton(pluginId, btn, () =>
+                    {
+                        string q = queryBox.Text;
+                        if (string.Equals(btn.id, submitAction, StringComparison.OrdinalIgnoreCase) &&
+                            !string.IsNullOrWhiteSpace(q))
+                        {
+                            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                            {
+                                queryBox.Text = string.Empty;
+                            }));
+                        }
+                        return q;
+                    });
+                    if (i > 0)
+                    {
+                        circleBtn.Margin = new Thickness(2, 0, 0, 0);
+                    }
+                    actionPanel.Children.Add(circleBtn);
+                }
+            }
+
+            Grid.SetColumn(actionPanel, 1);
+            barGrid.Children.Add(actionPanel);
+            ovalBar.Child = barGrid;
+
+            ovalBar.MouseLeftButtonDown += (s, e) =>
+            {
+                queryBox.Focus();
+                Keyboard.Focus(queryBox);
+                e.Handled = true;
+            };
+
+            return ovalBar;
+        }
+
+        private Border CreateBorderlessRoundIconButton(
+            string pluginId,
+            PluginRenderButton btn,
+            Func<string?>? queryProvider = null)
+        {
+            SolidColorBrush idleBg = MediaBrushes.Transparent;
+            SolidColorBrush hoverBg = new SolidColorBrush(MediaColor.FromRgb(68, 68, 78));
+            SolidColorBrush pressedBg = new SolidColorBrush(MediaColor.FromRgb(86, 86, 98));
+
+            Border circleBtn = new Border
+            {
+                Width = 34,
+                Height = 34,
+                CornerRadius = new CornerRadius(17),
+                Background = idleBg,
+                BorderThickness = new Thickness(0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                ToolTip = string.IsNullOrEmpty(btn.tooltip) ? null : new System.Windows.Controls.ToolTip
+                {
+                    Content = btn.tooltip,
+                    Background = new SolidColorBrush(MediaColor.FromRgb(24, 24, 27)),
+                    Foreground = MediaBrushes.White,
+                    BorderBrush = new SolidColorBrush(MediaColor.FromRgb(63, 63, 70))
+                }
+            };
+
+            MediaBrush iconBrush = ParseHexBrush(btn.iconColor, MediaColor.FromRgb(228, 228, 231));
+            double strokeWidth = btn.iconStrokeWidth ?? 1.85;
+
+            if (btn.iconPaths != null && btn.iconPaths.Count > 0)
+            {
+                circleBtn.Child = BuildVectorIconElement(btn.iconPaths, iconBrush, strokeWidth, size: 16);
+            }
+            else if (TryGetNamedButtonIconPaths(btn.icon, out string[] namedPaths))
+            {
+                circleBtn.Child = BuildVectorIconElement(namedPaths, iconBrush, strokeWidth, size: 16);
+            }
+
+            circleBtn.MouseEnter += (s, e) => circleBtn.Background = hoverBg;
+            circleBtn.MouseLeave += (s, e) => circleBtn.Background = idleBg;
+            circleBtn.MouseLeftButtonDown += (s, e) =>
+            {
+                circleBtn.Background = pressedBg;
+                string? q = queryProvider != null ? queryProvider() : null;
+                DispatchPluginAction(pluginId, btn.id, q);
+                e.Handled = true;
+            };
+            circleBtn.MouseLeftButtonUp += (s, e) =>
+            {
+                circleBtn.Background = circleBtn.IsMouseOver ? hoverBg : idleBg;
+                e.Handled = true;
+            };
+
+            return circleBtn;
         }
 
         private UIElement BuildCalculatorPluginBody(string pluginId, PluginRenderPayload payload)
@@ -1383,16 +1647,16 @@ namespace FuncOverlay
             return buttonBox;
         }
 
-        private void DispatchPluginAction(string pluginId, string actionId)
+        private void DispatchPluginAction(string pluginId, string actionId, string? query = null)
         {
-            if (_pluginHostService.SendAction(pluginId, actionId))
+            if (_pluginHostService.SendAction(pluginId, actionId, query))
             {
                 return;
             }
 
             // Try restarting plugin host once if it wasn't running yet
             _pluginHostService.StartAllForOpenOverlay(_pluginManager.LoadedPluginFolders);
-            if (_pluginHostService.SendAction(pluginId, actionId))
+            if (_pluginHostService.SendAction(pluginId, actionId, query))
             {
                 return;
             }
@@ -1522,6 +1786,23 @@ namespace FuncOverlay
                         "M3.5,5.5 A1.5,1.5 0 0 1 5,4 H19 A1.5,1.5 0 0 1 20.5,5.5 V18.5 A1.5,1.5 0 0 1 19,20 H5 A1.5,1.5 0 0 1 3.5,18.5 Z",
                         "M4,16.5 L9.5,11.5 L13,15 L15.5,12.5 L20,17.5",
                         "M14.6,8.2 A1.4,1.4 0 1 0 17.4,8.2 A1.4,1.4 0 1 0 14.6,8.2 Z"
+                    };
+                    return true;
+                case "search":
+                    paths = new[]
+                    {
+                        "M10.5,4 A6.5,6.5 0 1 0 10.5,17 A6.5,6.5 0 1 0 10.5,4 Z",
+                        "M15.3,15.3 L20,20"
+                    };
+                    return true;
+                case "photo_search":
+                case "lens":
+                    paths = new[]
+                    {
+                        "M4,8.5 V6.5 A2.5,2.5 0 0 1 6.5,4 H8.5 M15.5,4 H17.5 A2.5,2.5 0 0 1 20,6.5 V8.5",
+                        "M4,15.5 V17.5 A2.5,2.5 0 0 0 6.5,20 H8.5 M15.5,20 H17.5 A2.5,2.5 0 0 0 20,17.5 V15.5",
+                        "M12,9 A3,3 0 1 0 12,15 A3,3 0 1 0 12,9 Z",
+                        "M16.8,16.8 L16.85,16.8"
                     };
                     return true;
                 default:

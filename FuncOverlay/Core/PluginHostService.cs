@@ -54,11 +54,19 @@ namespace FuncOverlay.Core
         public string variant { get; set; } = "digit"; // "digit" | "operator" | "equals"
     }
 
+    public class PluginSearchBarPayload
+    {
+        public string placeholder { get; set; } = "Search...";
+        public string submitAction { get; set; } = "search_text";
+        public string? initialText { get; set; }
+    }
+
     public class PluginRenderPayload
     {
         public string type { get; set; } = "render";
         public string style { get; set; } = "gray";
         public string? layout { get; set; }
+        public PluginSearchBarPayload? searchBar { get; set; }
         public PluginDisplayPayload? display { get; set; }
         public List<List<PluginKeypadButton>>? keypad { get; set; }
         public List<PluginRenderButton> buttons { get; set; } = new List<PluginRenderButton>();
@@ -500,17 +508,25 @@ namespace FuncOverlay.Core
             }
         }
 
-        public bool SendAction(string pluginId, string actionId)
+        public bool SendAction(string pluginId, string actionId, string? query = null)
         {
             if (_running.TryGetValue(pluginId, out RunningPluginProcess? runner))
             {
                 if (!runner.Process.HasExited)
                 {
-                    return runner.WriteJsonLine(new
-                    {
-                        @event = "ui_action",
-                        action = actionId
-                    });
+                    object payload = query != null
+                        ? new
+                        {
+                            @event = "ui_action",
+                            action = actionId,
+                            query = query
+                        }
+                        : new
+                        {
+                            @event = "ui_action",
+                            action = actionId
+                        };
+                    return runner.WriteJsonLine(payload);
                 }
             }
             return false;
